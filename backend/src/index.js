@@ -29,5 +29,4 @@ app.get("*", (req, res) => {
 });
 
 initDb();
-app.listen(PORT, () => console.log(\`Elena running on port \${PORT}\`));
-
+app.listen(PORT, () => console.log("Elena running on port " + PORT));
