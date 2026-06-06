@@ -5,8 +5,14 @@
     <link rel="icon" type="image/svg+xml" href="/Elena/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Elena — Medically Modern AI</title>
-    <script type="module" crossorigin src="/assets/index-CWyD7ce-.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-zgSdVqfJ.css">
+    <script>
+      // Load client config from backend (Google Client ID, etc.)
+      fetch('/api/config').then(r => r.json()).then(c => {
+        window.__ELENA_GOOGLE_CLIENT_ID__ = c.googleClientId;
+      }).catch(() => {});
+    </script>
+    <script type="module" crossorigin src="/assets/index-Dhl296xg.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BDRSnUiI.css">
   </head>
   <body class="bg-[#0f0f0f] text-white">
     <div id="root"></div>
