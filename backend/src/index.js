@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { initDb } from './db/init.js';
 import { initVectorStore, setupSchema } from './services/vectorStore.js';
+import { warmup as warmupEmbeddings } from './services/embeddings.js';
 import chatRoutes from './routes/chat.js';
 import conversationRoutes from './routes/conversations.js';
 import adminRoutes from './routes/admin.js';
@@ -44,6 +45,8 @@ if (process.env.DATABASE_URL) {
       .then(() => console.log('pgvector ready'))
       .catch(err => console.error('pgvector setup failed:', err.message));
   }
+  // Pre-warm embedding model in background
+  warmupEmbeddings().catch(() => {});
 } else {
   console.log('No DATABASE_URL — RAG disabled, hardcoded knowledge only');
 }

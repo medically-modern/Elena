@@ -31,7 +31,7 @@ export async function setupSchema() {
         source_type TEXT NOT NULL DEFAULT 'document',
         category TEXT DEFAULT 'general',
         metadata JSONB DEFAULT '{}',
-        embedding vector(1536),
+        embedding vector(384),
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()
       )

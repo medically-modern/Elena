@@ -1,29 +1,45 @@
-import OpenAI from 'openai';
+import { pipeline } from '@xenova/transformers';
 
-const openai = new OpenAI();
-const MODEL = 'text-embedding-3-small'; // 1536 dims, $0.02/1M tokens
+let embedder = null;
 
-// Embed a single text
-export async function embed(text) {
-  const response = await openai.embeddings.create({
-    model: MODEL,
-    input: text.substring(0, 8000), // safety limit
-  });
-  return response.data[0].embedding;
+// Load model once, reuse for all requests
+// Uses all-MiniLM-L6-v2 (384 dims) — runs locally, no API key needed
+async function getEmbedder() {
+  if (!embedder) {
+    console.log('Loading embedding model (first time only)...');
+    embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+    console.log('Embedding model ready');
+  }
+  return embedder;
 }
 
-// Embed multiple texts in one API call (max 2048 inputs)
+// Embed a single text — returns 384-dim float array
+export async function embed(text) {
+  const extractor = await getEmbedder();
+  const output = await extractor(text, { pooling: 'mean', normalize: true });
+  return Array.from(output.data);
+}
+
+// Embed multiple texts
 export async function embedBatch(texts) {
-  const truncated = texts.map(t => t.substring(0, 8000));
-  // Process in batches of 100 to stay within limits
+  const extractor = await getEmbedder();
   const results = [];
-  for (let i = 0; i < truncated.length; i += 100) {
-    const batch = truncated.slice(i, i + 100);
-    const response = await openai.embeddings.create({
-      model: MODEL,
-      input: batch,
-    });
-    results.push(...response.data.map(d => d.embedding));
+  // Process in small batches to avoid OOM
+  for (let i = 0; i < texts.length; i += 10) {
+    const batch = texts.slice(i, i + 10);
+    for (const text of batch) {
+      const output = await extractor(text, { pooling: 'mean', normalize: true });
+      results.push(Array.from(output.data));
+    }
   }
   return results;
+}
+
+// Pre-warm the model on startup (optional, non-blocking)
+export async function warmup() {
+  try {
+    await getEmbedder();
+  } catch (err) {
+    console.error('Embedding model warmup failed:', err.message);
+  }
 }
