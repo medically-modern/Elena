@@ -3,6 +3,8 @@ name: Deploy Elena to GitHub Pages
 on:
   push:
     branches: [main]
+    paths:
+      - "frontend/**"
   workflow_dispatch:
 
 permissions:
@@ -24,12 +26,14 @@ jobs:
           node-version: 20
       - name: Install and build
         working-directory: frontend
+        env:
+          VITE_API_URL: https://elena-backend-production.up.railway.app/api
         run: |
           npm ci
-          npm run build
+          npx vite build --outDir dist
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: docs
+          path: frontend/dist
 
   deploy:
     needs: build
@@ -40,3 +44,4 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
