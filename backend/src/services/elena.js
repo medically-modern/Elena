@@ -2,6 +2,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/init.js';
 import { ELENA_SYSTEM_PROMPT } from '../config/personality.js';
 import { KNOWLEDGE_BASE } from '../config/knowledge-base.js';
+import { embed } from './embeddings.js';
+import { search, isReady as ragReady } from './vectorStore.js';
 
 const anthropic = new Anthropic();
 
@@ -13,8 +15,26 @@ export async function chat(conversationId, userMessage) {
     'SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC'
   ).all(conversationId);
 
-  // Build system prompt with knowledge
-  const systemPrompt = ELENA_SYSTEM_PROMPT + '\n\n' + KNOWLEDGE_BASE;
+  // Build system prompt with hardcoded knowledge
+  let systemPrompt = ELENA_SYSTEM_PROMPT + '\n\n' + KNOWLEDGE_BASE;
+
+  // RAG: retrieve relevant context from vector store
+  if (ragReady()) {
+    try {
+      const queryEmbedding = await embed(userMessage);
+      const results = await search(queryEmbedding, 5, 0.3);
+      if (results.length > 0) {
+        systemPrompt += '\n\n## RETRIEVED CONTEXT (from ingested knowledge)\n';
+        systemPrompt += 'The following information was retrieved as relevant. Use it to give a more complete answer:\n\n';
+        for (const r of results) {
+          const sim = (r.similarity * 100).toFixed(0);
+          systemPrompt += `### [${r.source_type}] ${r.source} (${sim}% match)\n${r.content}\n\n`;
+        }
+      }
+    } catch (err) {
+      console.error('RAG retrieval error (continuing without):', err.message);
+    }
+  }
 
   // Build messages array
   const messages = [
