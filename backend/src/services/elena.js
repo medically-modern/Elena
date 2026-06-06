@@ -22,7 +22,7 @@ export async function chat(conversationId, userMessage) {
   if (ragReady()) {
     try {
       const queryEmbedding = await embed(userMessage);
-      const results = await search(queryEmbedding, 5, 0.3);
+      const results = await search(queryEmbedding, 8, 0.15);
       if (results.length > 0) {
         systemPrompt += '\n\n## RETRIEVED CONTEXT (from ingested knowledge)\n';
         systemPrompt += 'The following information was retrieved as relevant. Use it to give a more complete answer:\n\n';
