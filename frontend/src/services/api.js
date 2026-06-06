@@ -1,0 +1,26 @@
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3200/api';
+
+async function request(path, options = {}) {
+  const res = await fetch(`${API_URL}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export const api = {
+  // Chat
+  sendMessage: (message, conversationId) =>
+    request('/chat', { method: 'POST', body: JSON.stringify({ message, conversationId }) }),
+
+  // Conversations
+  getConversations: () => request('/conversations'),
+  getMessages: (id) => request(`/conversations/${id}/messages`),
+  deleteConversation: (id) => request(`/conversations/${id}`, { method: 'DELETE' }),
+  renameConversation: (id, title) =>
+    request(`/conversations/${id}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
+
+  // Admin
+  getStats: () => request('/admin/stats'),
+};
