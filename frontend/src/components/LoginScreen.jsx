@@ -10,11 +10,9 @@ export default function LoginScreen({ onLogin }) {
     let mounted = true;
 
     async function init() {
-      // Wait for config to be available
       const API_URL = import.meta.env.VITE_API_URL || '/api';
       let clientId = window.__ELENA_GOOGLE_CLIENT_ID__;
 
-      // If not loaded yet from index.html script, fetch directly
       if (!clientId) {
         try {
           const res = await fetch(`${API_URL}/config`);
@@ -29,7 +27,6 @@ export default function LoginScreen({ onLogin }) {
         return;
       }
 
-      // Load Google Identity Services
       const script = document.createElement('script');
       script.src = 'https://accounts.google.com/gsi/client';
       script.async = true;
@@ -59,6 +56,7 @@ export default function LoginScreen({ onLogin }) {
   }, []);
 
   const handleCredentialResponse = async (response) => {
+    setError(null);
     try {
       const API_URL = import.meta.env.VITE_API_URL || '/api';
       const res = await fetch(`${API_URL}/auth/google`, {
@@ -66,16 +64,15 @@ export default function LoginScreen({ onLogin }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ credential: response.credential }),
       });
+      const data = await res.json();
       if (!res.ok) {
-        const err = await res.json();
-        setError(err.error || 'Login failed');
+        setError(data.error || 'Login failed');
         return;
       }
-      const data = await res.json();
       onLogin(data.token, data.user);
     } catch (err) {
       console.error('Login error:', err);
-      setError('Login failed — please try again');
+      setError('Network error — please try again');
     }
   };
 
@@ -94,7 +91,7 @@ export default function LoginScreen({ onLogin }) {
         <div className="flex justify-center min-h-[44px]">
           <div ref={btnRef}></div>
         </div>
-        {error && <p className="text-red-400 text-sm">{error}</p>}
+        {error && <p className="text-red-400 text-sm max-w-sm">{error}</p>}
         {loading && !error && <p className="text-elena-muted text-sm">Loading...</p>}
         <p className="text-elena-muted text-xs">Sign in with your Medically Modern Google account</p>
       </div>

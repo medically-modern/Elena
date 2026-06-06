@@ -14,29 +14,32 @@ router.post('/google', async (req, res) => {
     if (!clientId) return res.status(500).json({ error: 'Google OAuth not configured' });
 
     const client = new OAuth2Client(clientId);
-    const ticket = await client.verifyIdToken({
-      idToken: credential,
-      audience: clientId,
-    });
+    let ticket;
+    try {
+      ticket = await client.verifyIdToken({
+        idToken: credential,
+        audience: clientId,
+      });
+    } catch (verifyErr) {
+      console.error('Token verification failed:', verifyErr.message);
+      return res.status(401).json({ error: 'Token verification failed: ' + verifyErr.message });
+    }
 
     const payload = ticket.getPayload();
     const { sub: googleId, email, name, picture, hd } = payload;
 
-    // Optional: restrict to company domain
     const allowedDomain = process.env.ALLOWED_DOMAIN;
     if (allowedDomain && hd !== allowedDomain) {
       return res.status(403).json({ error: `Only ${allowedDomain} accounts are allowed` });
     }
 
     const db = getDb();
-
-    // Upsert user
     const existing = db.prepare('SELECT * FROM users WHERE google_id = ?').get(googleId);
     let user;
 
     if (existing) {
       db.prepare(
-        'UPDATE users SET email = ?, name = ?, picture = ?, last_login = datetime(\'now\') WHERE google_id = ?'
+        "UPDATE users SET email = ?, name = ?, picture = ?, last_login = datetime('now') WHERE google_id = ?"
       ).run(email, name, picture, googleId);
       user = { ...existing, email, name, picture };
     } else {
@@ -48,20 +51,17 @@ router.post('/google', async (req, res) => {
     }
 
     const token = generateToken(user);
-
     res.json({
       token,
       user: { id: user.id, email: user.email, name: user.name, picture: user.picture }
     });
   } catch (err) {
     console.error('Google auth error:', err);
-    res.status(401).json({ error: 'Invalid Google credential' });
+    res.status(401).json({ error: 'Auth failed: ' + err.message });
   }
 });
 
-// Get current user info
 router.get('/me', (req, res) => {
-  // This endpoint needs auth middleware applied in index.js
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
   const db = getDb();
   const user = db.prepare('SELECT id, email, name, picture FROM users WHERE id = ?').get(req.user.userId);
