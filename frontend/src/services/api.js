@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3200/api';
+const API_URL = import.meta.env.VITE_API_URL || 'https://elena-backend-production.up.railway.app/api';
 
 async function request(path, options = {}) {
   const res = await fetch(`${API_URL}${path}`, {
