@@ -3,7 +3,7 @@ import { getDb } from '../db/init.js';
 import { ELENA_SYSTEM_PROMPT } from '../config/personality.js';
 import { KNOWLEDGE_BASE } from '../config/knowledge-base.js';
 import { embed } from './embeddings.js';
-import { search, isReady as ragReady } from './vectorStore.js';
+import { search, keywordSearch, isReady as ragReady } from './vectorStore.js';
 
 const anthropic = new Anthropic();
 
@@ -21,14 +21,28 @@ export async function chat(conversationId, userMessage) {
   // RAG: retrieve relevant context from vector store
   if (ragReady()) {
     try {
+      // Hybrid search: semantic + keyword
       const queryEmbedding = await embed(userMessage);
-      const results = await search(queryEmbedding, 8, 0.15);
-      if (results.length > 0) {
+      const semanticResults = await search(queryEmbedding, 6);
+      const kwResults = await keywordSearch(userMessage, 4);
+
+      // Deduplicate by id, prefer semantic results
+      const seen = new Set();
+      const allResults = [];
+      for (const r of [...semanticResults, ...kwResults]) {
+        if (!seen.has(r.id)) {
+          seen.add(r.id);
+          allResults.push(r);
+        }
+      }
+
+      if (allResults.length > 0) {
+        // Trim to top 8 total
+        const top = allResults.slice(0, 8);
         systemPrompt += '\n\n## RETRIEVED CONTEXT (from ingested knowledge)\n';
         systemPrompt += 'The following information was retrieved as relevant. Use it to give a more complete answer:\n\n';
-        for (const r of results) {
-          const sim = (r.similarity * 100).toFixed(0);
-          systemPrompt += `### [${r.source_type}] ${r.source} (${sim}% match)\n${r.content}\n\n`;
+        for (const r of top) {
+          systemPrompt += `### [${r.source}]\n${r.content}\n\n`;
         }
       }
     } catch (err) {

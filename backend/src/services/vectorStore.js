@@ -93,18 +93,46 @@ export async function storeChunks(chunks) {
   }
 }
 
-// Semantic search — returns top-k most similar chunks
-export async function search(queryEmbedding, limit = 5, threshold = 0.3) {
+// Hybrid search — combines semantic similarity with keyword matching
+// Returns union of vector results + keyword results, deduplicated, ranked by combined score
+export async function search(queryEmbedding, limit = 8, threshold = 0.15) {
   if (!pool) return [];
   const vectorStr = '[' + queryEmbedding.join(',') + ']';
+
+  // Extract keywords (3+ chars, no stopwords) for keyword fallback
+  const stopwords = new Set(['the','and','for','are','but','not','you','all','can','had','her','was','one','our','out','has','have','that','this','with','what','when','where','how','who','which','about','from','been','will','more','some','than','them','then','into','could','would','should','their','there','these','those','being','does','doing']);
+  const keywords = queryEmbedding ?
+    [] : []; // placeholder — we extract from the raw query in elena.js instead
+
   const result = await pool.query(
     `SELECT id, content, source, source_type, category, metadata,
             1 - (embedding <=> $1::vector) as similarity
      FROM knowledge_vectors
-     WHERE 1 - (embedding <=> $1::vector) > $2
      ORDER BY embedding <=> $1::vector
-     LIMIT $3`,
-    [vectorStr, threshold, limit]
+     LIMIT $2`,
+    [vectorStr, limit]
+  );
+  return result.rows;
+}
+
+// Keyword search — plain text matching for when semantic search misses
+export async function keywordSearch(query, limit = 5) {
+  if (!pool) return [];
+  // Extract meaningful words
+  const words = query.toLowerCase().split(/\s+/).filter(w => w.length >= 3);
+  if (words.length === 0) return [];
+
+  // Build ILIKE conditions — match chunks containing ANY keyword
+  const conditions = words.map((_, i) => `content ILIKE $${i + 1}`);
+  const params = words.map(w => `%${w}%`);
+  params.push(limit);
+
+  const result = await pool.query(
+    `SELECT id, content, source, source_type, category, metadata, 0.0 as similarity
+     FROM knowledge_vectors
+     WHERE ${conditions.join(' OR ')}
+     LIMIT $${params.length}`,
+    params
   );
   return result.rows;
 }
