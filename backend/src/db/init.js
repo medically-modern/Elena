@@ -15,6 +15,7 @@ export function initDb() {
     CREATE TABLE IF NOT EXISTS conversations (
       id TEXT PRIMARY KEY,
       title TEXT DEFAULT 'New Chat',
+      user_id TEXT,
       created_at DATETIME DEFAULT (datetime('now')),
       updated_at DATETIME DEFAULT (datetime('now'))
     );
@@ -26,6 +27,17 @@ export function initDb() {
       content TEXT NOT NULL,
       created_at DATETIME DEFAULT (datetime('now')),
       FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      google_id TEXT UNIQUE,
+      email TEXT UNIQUE NOT NULL,
+      name TEXT,
+      picture TEXT,
+      role TEXT DEFAULT 'user',
+      created_at DATETIME DEFAULT (datetime('now')),
+      last_login DATETIME DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS knowledge_chunks (
@@ -52,13 +64,24 @@ export function initDb() {
     CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
     CREATE INDEX IF NOT EXISTS idx_knowledge_category ON knowledge_chunks(category);
     CREATE INDEX IF NOT EXISTS idx_learned_category ON learned_facts(category);
+    CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(user_id);
+    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+    CREATE INDEX IF NOT EXISTS idx_users_google ON users(google_id);
   `);
+
+  // Migration: add user_id to conversations if missing (existing DBs)
+  try {
+    db.prepare("SELECT user_id FROM conversations LIMIT 1").get();
+  } catch {
+    db.exec("ALTER TABLE conversations ADD COLUMN user_id TEXT");
+    console.log('Migrated: added user_id to conversations');
+  }
 
   console.log('Elena database initialized');
   return db;
 }
 
 export function getDb() {
-  if (!db) initDb();
+  if (!db) throw new Error('Database not initialized');
   return db;
 }

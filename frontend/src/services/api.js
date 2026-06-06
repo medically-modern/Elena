@@ -1,11 +1,20 @@
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
+let authToken = null;
+
+export function setAuthToken(token) {
+  authToken = token;
+}
+
 async function request(path, options = {}) {
-  const res = await fetch(\`\${API_URL}\${path}\`, {
-    headers: { "Content-Type": "application/json" },
+  const headers = { "Content-Type": "application/json" };
+  if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+
+  const res = await fetch(`${API_URL}${path}`, {
+    headers,
     ...options
   });
-  if (!res.ok) throw new Error(\`API error: \${res.status}\`);
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json();
 }
 
@@ -13,10 +22,9 @@ export const api = {
   sendMessage: (message, conversationId) =>
     request("/chat", { method: "POST", body: JSON.stringify({ message, conversationId }) }),
   getConversations: () => request("/conversations"),
-  getMessages: (id) => request(\`/conversations/\${id}/messages\`),
-  deleteConversation: (id) => request(\`/conversations/\${id}\`, { method: "DELETE" }),
+  getMessages: (id) => request(`/conversations/${id}/messages`),
+  deleteConversation: (id) => request(`/conversations/${id}`, { method: "DELETE" }),
   renameConversation: (id, title) =>
-    request(\`/conversations/\${id}\`, { method: "PATCH", body: JSON.stringify({ title }) }),
+    request(`/conversations/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
   getStats: () => request("/admin/stats"),
 };
-

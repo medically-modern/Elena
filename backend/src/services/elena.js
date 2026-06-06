@@ -1,13 +1,14 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/init.js';
 import { ELENA_SYSTEM_PROMPT } from '../config/personality.js';
+import { CEO_SYSTEM_PROMPT } from '../config/ceo-personality.js';
 import { KNOWLEDGE_BASE } from '../config/knowledge-base.js';
 import { embed } from './embeddings.js';
 import { search, keywordSearch, isReady as ragReady } from './vectorStore.js';
 
 const anthropic = new Anthropic();
 
-export async function chat(conversationId, userMessage) {
+export async function chat(conversationId, userMessage, mode = 'standard') {
   const db = getDb();
 
   // Get conversation history
@@ -15,13 +16,18 @@ export async function chat(conversationId, userMessage) {
     'SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC'
   ).all(conversationId);
 
-  // Build system prompt with hardcoded knowledge
-  let systemPrompt = ELENA_SYSTEM_PROMPT + '\n\n' + KNOWLEDGE_BASE;
+  // Build system prompt based on mode
+  let systemPrompt;
+  if (mode === 'ceo') {
+    systemPrompt = CEO_SYSTEM_PROMPT;
+  } else {
+    systemPrompt = ELENA_SYSTEM_PROMPT;
+  }
+  systemPrompt += '\n\n' + KNOWLEDGE_BASE;
 
   // RAG: retrieve relevant context from vector store
   if (ragReady()) {
     try {
-      // Hybrid search: semantic + keyword
       const queryEmbedding = await embed(userMessage);
       const semanticResults = await search(queryEmbedding, 6);
       const kwResults = await keywordSearch(userMessage, 4);
@@ -37,7 +43,6 @@ export async function chat(conversationId, userMessage) {
       }
 
       if (allResults.length > 0) {
-        // Trim to top 8 total
         const top = allResults.slice(0, 8);
         systemPrompt += '\n\n## RETRIEVED CONTEXT (from ingested knowledge)\n';
         systemPrompt += 'The following information was retrieved as relevant. Use it to give a more complete answer:\n\n';
@@ -50,7 +55,6 @@ export async function chat(conversationId, userMessage) {
     }
   }
 
-  // Build messages array
   const messages = [
     ...history.map(h => ({ role: h.role, content: h.content })),
     { role: 'user', content: userMessage }
@@ -69,10 +73,8 @@ export async function chat(conversationId, userMessage) {
   db.prepare('INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)').run(conversationId, 'user', userMessage);
   db.prepare('INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)').run(conversationId, 'assistant', assistantMessage);
 
-  // Update conversation timestamp and auto-title from first message
   db.prepare('UPDATE conversations SET updated_at = datetime(\'now\') WHERE id = ?').run(conversationId);
 
-  // Auto-title on first message
   if (history.length === 0) {
     autoTitle(conversationId, userMessage).catch(() => {});
   }
@@ -91,7 +93,5 @@ async function autoTitle(conversationId, firstMessage) {
     const title = resp.content[0].text.trim().substring(0, 100);
     const db = getDb();
     db.prepare('UPDATE conversations SET title = ? WHERE id = ?').run(title, conversationId);
-  } catch (e) {
-    // Non-critical
-  }
+  } catch (e) {}
 }

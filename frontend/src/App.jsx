@@ -1,23 +1,56 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatView from './components/ChatView';
-import { api } from './services/api';
+import LoginScreen from './components/LoginScreen';
+import { api, setAuthToken } from './services/api';
 
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [conversations, setConversations] = useState([]);
   const [activeConvo, setActiveConvo] = useState(null);
   const [messages, setMessages] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 768);
 
+  // Check for existing token on mount
+  useEffect(() => {
+    const token = sessionStorage.getItem('elena_token');
+    const savedUser = sessionStorage.getItem('elena_user');
+    if (token && savedUser) {
+      setAuthToken(token);
+      setUser(JSON.parse(savedUser));
+    }
+    setAuthChecked(true);
+  }, []);
+
+  const handleLogin = (token, userData) => {
+    sessionStorage.setItem('elena_token', token);
+    sessionStorage.setItem('elena_user', JSON.stringify(userData));
+    setAuthToken(token);
+    setUser(userData);
+  };
+
+  const handleLogout = () => {
+    sessionStorage.removeItem('elena_token');
+    sessionStorage.removeItem('elena_user');
+    setAuthToken(null);
+    setUser(null);
+    setConversations([]);
+    setMessages([]);
+    setActiveConvo(null);
+  };
+
   // Load conversation list
   const loadConversations = useCallback(async () => {
+    if (!user) return;
     try {
       const data = await api.getConversations();
       setConversations(data);
     } catch (e) {
       console.error('Failed to load conversations:', e);
+      if (e.message.includes('401')) handleLogout();
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => { loadConversations(); }, [loadConversations]);
 
@@ -45,23 +78,20 @@ export default function App() {
   };
 
   const handleMessageSent = (convoId, userMsg, assistantMsg, title) => {
-    // Update messages locally
     setMessages(prev => [
       ...prev,
       { role: 'user', content: userMsg, created_at: new Date().toISOString() },
       { role: 'assistant', content: assistantMsg, created_at: new Date().toISOString() }
     ]);
-
-    // If this was a new conversation, set it active
     if (!activeConvo) setActiveConvo(convoId);
-
-    // Refresh sidebar
     loadConversations();
   };
 
+  if (!authChecked) return null;
+  if (!user) return <LoginScreen onLogin={handleLogin} />;
+
   return (
-    <div className="flex h-screen overflow-hidden">
-      {/* Sidebar */}
+    <div className="flex h-screen bg-elena-bg text-elena-text">
       <Sidebar
         conversations={conversations}
         activeConvo={activeConvo}
@@ -70,22 +100,17 @@ export default function App() {
         onNewChat={handleNewChat}
         onSelect={handleSelectConvo}
         onDelete={handleDeleteConvo}
+        user={user}
+        onLogout={handleLogout}
       />
-
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <main className="flex-1 flex flex-col min-w-0">
         <ChatView
           conversationId={activeConvo}
           messages={messages}
           onMessageSent={handleMessageSent}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
         />
-      </div>
-
-      {/* Mobile overlay */}
-      {sidebarOpen && window.innerWidth <= 768 && (
-        <div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => setSidebarOpen(false)} />
-      )}
+      </main>
     </div>
   );
 }

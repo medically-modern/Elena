@@ -1,15 +1,13 @@
 import React, { useState } from 'react';
-import { Plus, MessageSquare, Trash2, PanelLeftClose, PanelLeft } from 'lucide-react';
+import { Plus, MessageSquare, Trash2, PanelLeftClose, PanelLeft, LogOut } from 'lucide-react';
 
-export default function Sidebar({ conversations, activeConvo, isOpen, onToggle, onNewChat, onSelect, onDelete }) {
+export default function Sidebar({ conversations, activeConvo, isOpen, onToggle, onNewChat, onSelect, onDelete, user, onLogout }) {
   const [hoveredId, setHoveredId] = useState(null);
 
-  // Group conversations by date
   const grouped = groupByDate(conversations);
 
   return (
     <>
-      {/* Toggle button when closed */}
       {!isOpen && (
         <button
           onClick={onToggle}
@@ -20,7 +18,6 @@ export default function Sidebar({ conversations, activeConvo, isOpen, onToggle, 
       )}
 
       <div className={`${isOpen ? 'w-64' : 'w-0'} flex-shrink-0 bg-elena-surface border-r border-elena-border flex flex-col transition-all duration-200 overflow-hidden fixed md:relative h-full z-40`}>
-        {/* Header */}
         <div className="flex items-center justify-between p-3 border-b border-elena-border">
           <button onClick={onToggle} className="p-1.5 rounded-lg hover:bg-elena-hover text-elena-muted hover:text-elena-text transition-colors">
             <PanelLeftClose size={20} />
@@ -34,7 +31,6 @@ export default function Sidebar({ conversations, activeConvo, isOpen, onToggle, 
           </button>
         </div>
 
-        {/* Conversation list */}
         <div className="flex-1 overflow-y-auto py-2">
           {Object.entries(grouped).map(([label, convos]) => (
             <div key={label}>
@@ -71,14 +67,27 @@ export default function Sidebar({ conversations, activeConvo, isOpen, onToggle, 
           )}
         </div>
 
-        {/* Footer */}
+        {/* User footer */}
         <div className="p-3 border-t border-elena-border">
           <div className="flex items-center gap-2 px-2">
-            <div className="w-7 h-7 rounded-full bg-elena-accent flex items-center justify-center text-white text-xs font-bold">E</div>
-            <div>
-              <div className="text-sm font-medium text-elena-text">Elena</div>
-              <div className="text-xs text-elena-muted">Medically Modern AI</div>
+            {user?.picture ? (
+              <img src={user.picture} alt="" className="w-7 h-7 rounded-full" referrerPolicy="no-referrer" />
+            ) : (
+              <div className="w-7 h-7 rounded-full bg-elena-accent flex items-center justify-center text-white text-xs font-bold">
+                {(user?.name || 'U')[0].toUpperCase()}
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-elena-text truncate">{user?.name || 'User'}</div>
+              <div className="text-xs text-elena-muted truncate">{user?.email || ''}</div>
             </div>
+            <button
+              onClick={onLogout}
+              className="p-1.5 rounded-lg hover:bg-elena-hover text-elena-muted hover:text-red-400 transition-colors"
+              title="Sign out"
+            >
+              <LogOut size={16} />
+            </button>
           </div>
         </div>
       </div>

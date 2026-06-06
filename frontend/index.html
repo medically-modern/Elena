@@ -5,6 +5,12 @@
     <link rel="icon" type="image/svg+xml" href="/Elena/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Elena — Medically Modern AI</title>
+    <script>
+      // Load client config from backend (Google Client ID, etc.)
+      fetch('/api/config').then(r => r.json()).then(c => {
+        window.__ELENA_GOOGLE_CLIENT_ID__ = c.googleClientId;
+      }).catch(() => {});
+    </script>
   </head>
   <body class="bg-[#0f0f0f] text-white">
     <div id="root"></div>

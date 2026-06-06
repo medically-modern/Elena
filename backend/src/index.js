@@ -5,6 +5,8 @@ import { fileURLToPath } from 'url';
 import { initDb } from './db/init.js';
 import { initVectorStore, setupSchema } from './services/vectorStore.js';
 import { warmup as warmupEmbeddings } from './services/embeddings.js';
+import { authMiddleware, optionalAuth } from './middleware/auth.js';
+import authRoutes from './routes/auth.js';
 import chatRoutes from './routes/chat.js';
 import conversationRoutes from './routes/conversations.js';
 import adminRoutes from './routes/admin.js';
@@ -15,16 +17,28 @@ const app = express();
 const PORT = process.env.PORT || 3200;
 
 app.use(cors());
-app.use(express.json({ limit: '50mb' })); // larger limit for bulk ingestion
+app.use(express.json({ limit: '50mb' }));
 
-// Health check
-app.get('/api/health', (req, res) => res.json({ status: 'ok', service: 'elena', rag: !!process.env.DATABASE_URL }));
+// Public endpoints — no auth
+app.get('/api/health', (req, res) => res.json({
+  status: 'ok',
+  service: 'elena',
+  rag: !!process.env.DATABASE_URL,
+  auth: !!process.env.GOOGLE_CLIENT_ID
+}));
 
-// Routes
-app.use('/api/chat', chatRoutes);
-app.use('/api/conversations', conversationRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/ingest', ingestRoutes);
+app.get('/api/config', (req, res) => res.json({
+  googleClientId: process.env.GOOGLE_CLIENT_ID || null
+}));
+
+// Auth routes — no auth required
+app.use('/api/auth', authRoutes);
+
+// Protected routes
+app.use('/api/chat', authMiddleware, chatRoutes);
+app.use('/api/conversations', authMiddleware, conversationRoutes);
+app.use('/api/admin', authMiddleware, adminRoutes);
+app.use('/api/ingest', authMiddleware, ingestRoutes);
 
 // Serve frontend
 app.use(express.static(path.join(__dirname, '../public')));
@@ -37,7 +51,6 @@ app.get('*', (req, res) => {
 // Init
 initDb();
 
-// Init vector store (non-blocking — app works without it)
 if (process.env.DATABASE_URL) {
   const connected = initVectorStore();
   if (connected) {
@@ -45,7 +58,6 @@ if (process.env.DATABASE_URL) {
       .then(() => console.log('pgvector ready'))
       .catch(err => console.error('pgvector setup failed:', err.message));
   }
-  // Pre-warm embedding model in background
   warmupEmbeddings().catch(() => {});
 } else {
   console.log('No DATABASE_URL — RAG disabled, hardcoded knowledge only');
