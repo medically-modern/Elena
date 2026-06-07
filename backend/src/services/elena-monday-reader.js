@@ -363,7 +363,7 @@ export async function getPatient(itemId, boardId) {
         group { id title }
         column_values {
           id
-          title
+          column { title }
           text
           value
         }
@@ -385,7 +385,7 @@ export async function getPatient(itemId, boardId) {
   // Skip separator/header columns (titles ending in --> or →) and empty values.
   const columns = {};
   for (const cv of item.column_values) {
-    const title = cv.title || cv.id;
+    const title = cv.column?.title || cv.id;
     if (!cv.text && !cv.value) continue;                   // skip empty
     if (/-->$|→$/.test(title.trim())) continue;            // skip section headers
     if (title.trim() === '<-->') continue;                  // skip spacers
