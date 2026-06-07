@@ -8,8 +8,38 @@ import {
   getUserByGoogleId,
   getUserById,
 } from '../services/pgConversations.js';
+import pg from 'pg';
 
 const router = Router();
+
+// One-time migration: reassign orphaned conversations from old UUID user_ids
+async function migrateOrphanedConversations(googleId) {
+  if (!isConversationsReady()) return;
+  try {
+    const { Pool } = pg;
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    });
+    // Find standalone conversations whose user_id doesn't match any known googleId in the users table
+    const result = await pool.query(`
+      UPDATE conversations
+      SET user_id = $1
+      WHERE source = 'standalone'
+        AND user_id IS NOT NULL
+        AND user_id != 'portal'
+        AND user_id != $1
+        AND user_id NOT IN (SELECT google_id FROM users WHERE google_id IS NOT NULL)
+      RETURNING id, title
+    `, [googleId]);
+    if (result.rows.length > 0) {
+      console.log(`[auth] Migrated ${result.rows.length} orphaned conversations to ${googleId}`);
+    }
+    await pool.end();
+  } catch (err) {
+    console.warn('[auth] Orphan migration skipped:', err.message);
+  }
+}
 
 router.post('/google', async (req, res) => {
   try {
@@ -42,10 +72,10 @@ router.post('/google', async (req, res) => {
     let user;
 
     if (isConversationsReady()) {
-      // Postgres — user persists across deploys
       user = await upsertUser(googleId, email, name, picture);
+      // Reclaim any orphaned conversations from previous deploys
+      migrateOrphanedConversations(googleId).catch(() => {});
     } else {
-      // SQLite fallback
       const db = getDb();
       const existing = db.prepare('SELECT * FROM users WHERE google_id = ?').get(googleId);
       if (existing) {
@@ -61,7 +91,6 @@ router.post('/google', async (req, res) => {
       }
     }
 
-    // Use googleId as the stable userId — never changes across deploys
     const token = generateToken({ ...user, id: googleId });
     res.json({
       token,
@@ -83,7 +112,6 @@ router.get('/me', async (req, res) => {
   }
 
   if (!user) {
-    // SQLite fallback
     const db = getDb();
     user = db.prepare('SELECT id, email, name, picture FROM users WHERE google_id = ?').get(req.user.userId);
     if (!user) user = db.prepare('SELECT id, email, name, picture FROM users WHERE id = ?').get(req.user.userId);
