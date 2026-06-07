@@ -117,32 +117,28 @@ async function autoTitle(conversationId, firstMessage) {
   } catch (e) {}
 }
 
-// Detect when user is setting a rule and auto-create it in the shared knowledge base
+// Detect when user explicitly asks Elena to remember something
+// ONLY triggers on "elena remember" / "remember that" — nothing else
 async function detectAndCreateRule(userMessage) {
-  const msgLower = userMessage.toLowerCase();
-  const ruleSignals = [
-    'make a rule', 'add a rule', 'create a rule', 'new rule',
-    'remember that', 'from now on', 'going forward',
-    'we don\'t', 'we dont', 'we no longer', 'we stopped', 'we\'ve stopped',
-    'never ', 'always ', 'make sure you', 'make sure elena',
-    'update your rule', 'change the rule',
-    'we now ', 'we only ', 'we are now', 'we\'re now',
-    'stop accepting', 'start accepting', 'we accept', 'we take',
-    'we don\'t take', 'we dont take', 'we don\'t accept', 'we dont accept',
+  const msgLower = userMessage.toLowerCase().trim();
+  const rememberTriggers = [
+    'elena remember', 'elena, remember',
+    'remember that', 'remember this',
   ];
-  if (!ruleSignals.some(s => msgLower.includes(s))) return;
+  if (!rememberTriggers.some(s => msgLower.includes(s))) return;
 
   try {
     const detection = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 300,
-      system: `You detect business rules in user messages. A rule is a directive that should be remembered permanently and override any previous context. Examples:
-- "we don't take United" → rule: "Medically Modern does not accept United insurance."
-- "from now on, always call back patients within 2 hours" → rule: "All patient callbacks must happen within 2 hours."
-- "remember that we only ship on Tuesdays and Fridays" → rule: "Shipping only occurs on Tuesdays and Fridays."
+      system: `The user is explicitly asking Elena to remember something. Extract the rule or fact they want remembered and return it as a clean, permanent business rule.
 
-If the message contains a rule, return JSON: {"isRule": true, "rule": "clear statement of the rule", "category": "insurance|shipping|policy|products|patients|operations|general"}
-If NOT a rule (just a question or casual statement), return: {"isRule": false}
+Examples:
+- "Elena remember that we don't take United" → {"rule": "Medically Modern does not accept United Healthcare insurance.", "category": "insurance"}
+- "remember that we only ship on Tuesdays and Fridays" → {"rule": "Shipping only occurs on Tuesdays and Fridays.", "category": "shipping"}
+- "Elena, remember this: all callbacks within 2 hours" → {"rule": "All patient callbacks must happen within 2 hours.", "category": "operations"}
+
+Return JSON: {"rule": "clear statement of the rule", "category": "insurance|shipping|policy|products|patients|operations|general"}
 JSON only, no explanation.`,
       messages: [{ role: 'user', content: userMessage }]
     });
@@ -153,7 +149,7 @@ JSON only, no explanation.`,
     }
     const result = JSON.parse(raw);
 
-    if (result.isRule && result.rule) {
+    if (result.rule) {
       const created = await createRuleFn(result.rule, result.category || 'general', {
         source_message: userMessage.substring(0, 200),
         detected_at: new Date().toISOString(),
