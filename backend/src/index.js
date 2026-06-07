@@ -6,6 +6,7 @@ import { initDb } from './db/init.js';
 import { initVectorStore, setupSchema } from './services/vectorStore.js';
 import { warmup as warmupEmbeddings } from './services/embeddings.js';
 import { initRulesPool, setupRulesSchema } from './services/rules.js';
+import { initConversationsPool, setupConversationsSchema } from './services/pgConversations.js';
 import { authMiddleware, optionalAuth } from './middleware/auth.js';
 import authRoutes from './routes/auth.js';
 import chatRoutes from './routes/chat.js';
@@ -57,6 +58,7 @@ initDb();
 if (process.env.DATABASE_URL) {
   const connected = initVectorStore();
   const rulesConnected = initRulesPool();
+  const convosConnected = initConversationsPool();
   if (connected) {
     setupSchema()
       .then(() => console.log('pgvector ready'))
@@ -67,9 +69,14 @@ if (process.env.DATABASE_URL) {
       .then(() => console.log('Rules engine ready — shared rules active'))
       .catch(err => console.error('Rules schema setup failed:', err.message));
   }
+  if (convosConnected) {
+    setupConversationsSchema()
+      .then(() => console.log('Postgres conversations ready — history persists across deploys'))
+      .catch(err => console.error('Conversations schema setup failed:', err.message));
+  }
   warmupEmbeddings().catch(() => {});
 } else {
-  console.log('No DATABASE_URL — RAG + rules disabled, hardcoded knowledge only');
+  console.log('No DATABASE_URL — RAG + rules + persistent conversations disabled');
 }
 
 app.listen(PORT, () => console.log('Elena running on port ' + PORT));

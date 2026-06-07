@@ -1,11 +1,20 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { getDb } from '../db/init.js';
 import { ELENA_SYSTEM_PROMPT } from '../config/personality.js';
 import { CEO_SYSTEM_PROMPT } from '../config/ceo-personality.js';
 import { KNOWLEDGE_BASE } from '../config/knowledge-base.js';
 import { embed } from './embeddings.js';
 import { search, keywordSearch, isReady as ragReady } from './vectorStore.js';
 import { chatWithTools } from './elena-tool-use.js';
+import {
+  isConversationsReady,
+  getMessages,
+  addMessage,
+  touchConversation,
+  updateConversationTitle,
+} from './pgConversations.js';
+
+// Fallback to SQLite if Postgres not available
+import { getDb } from '../db/init.js';
 
 // Rules engine — shared source of truth, overrides all other context
 let rulesReadyFn, buildRulesBlock, createRuleFn;
@@ -24,12 +33,20 @@ try {
 const anthropic = new Anthropic();
 
 export async function chat(conversationId, userMessage, mode = 'standard') {
-  const db = getDb();
+  const usePg = isConversationsReady();
 
   // Get conversation history
-  const history = db.prepare(
-    'SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC'
-  ).all(conversationId);
+  let previousMessages;
+  if (usePg) {
+    const history = await getMessages(conversationId);
+    previousMessages = history.map(h => ({ role: h.role, content: h.content }));
+  } else {
+    const db = getDb();
+    const history = db.prepare(
+      'SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at ASC'
+    ).all(conversationId);
+    previousMessages = history.map(h => ({ role: h.role, content: h.content }));
+  }
 
   // Build system prompt based on mode
   let systemPrompt;
@@ -41,7 +58,6 @@ export async function chat(conversationId, userMessage, mode = 'standard') {
   systemPrompt += '\n\n' + KNOWLEDGE_BASE;
 
   // RULES — injected FIRST, above all other retrieved context
-  // Rules are the source of truth and override everything else
   const rulesBlock = await buildRulesBlock();
   if (rulesBlock) systemPrompt += rulesBlock;
 
@@ -74,9 +90,7 @@ export async function chat(conversationId, userMessage, mode = 'standard') {
     }
   }
 
-  const previousMessages = history.map(h => ({ role: h.role, content: h.content }));
-
-  // Use chatWithTools for Monday.com + Command Center code lookup access
+  // Use chatWithTools for Monday.com + Command Center code lookup + rules management
   const assistantMessage = await chatWithTools(
     conversationId,
     userMessage,
@@ -85,12 +99,18 @@ export async function chat(conversationId, userMessage, mode = 'standard') {
   );
 
   // Save both messages
-  db.prepare('INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)').run(conversationId, 'user', userMessage);
-  db.prepare('INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)').run(conversationId, 'assistant', assistantMessage);
+  if (usePg) {
+    await addMessage(conversationId, 'user', userMessage);
+    await addMessage(conversationId, 'assistant', assistantMessage);
+    await touchConversation(conversationId);
+  } else {
+    const db = getDb();
+    db.prepare('INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)').run(conversationId, 'user', userMessage);
+    db.prepare('INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)').run(conversationId, 'assistant', assistantMessage);
+    db.prepare('UPDATE conversations SET updated_at = datetime(\'now\') WHERE id = ?').run(conversationId);
+  }
 
-  db.prepare('UPDATE conversations SET updated_at = datetime(\'now\') WHERE id = ?').run(conversationId);
-
-  if (history.length === 0) {
+  if (previousMessages.length === 0) {
     autoTitle(conversationId, userMessage).catch(() => {});
   }
 
@@ -109,13 +129,16 @@ async function autoTitle(conversationId, firstMessage) {
       messages: [{ role: 'user', content: firstMessage }]
     });
     const title = resp.content[0].text.trim().substring(0, 100);
-    const db = getDb();
-    db.prepare('UPDATE conversations SET title = ? WHERE id = ?').run(title, conversationId);
+    if (isConversationsReady()) {
+      await updateConversationTitle(conversationId, title);
+    } else {
+      const db = getDb();
+      db.prepare('UPDATE conversations SET title = ? WHERE id = ?').run(title, conversationId);
+    }
   } catch (e) {}
 }
 
 // Detect when user explicitly asks Elena to remember something
-// ONLY triggers on "elena remember" / "remember that" — nothing else
 async function detectAndCreateRule(userMessage) {
   const msgLower = userMessage.toLowerCase().trim();
   const rememberTriggers = [
