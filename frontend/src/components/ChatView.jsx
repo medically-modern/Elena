@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Menu, Sparkles } from 'lucide-react';
+import { Send, Menu } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { api } from '../services/api';
 
@@ -9,6 +9,18 @@ const SUGGESTIONS = [
   "What's the patient onboarding pipeline?",
   "How do I check same-or-similar for a patient?"
 ];
+
+function ElenaLogo({ size = 32, className = '' }) {
+  return (
+    <img
+      src="/elena-logo.svg"
+      alt="Elena"
+      width={size}
+      height={size}
+      className={`rounded-full ${className}`}
+    />
+  );
+}
 
 export default function ChatView({ conversationId, messages, onMessageSent, onToggleSidebar }) {
   const [input, setInput] = useState('');
@@ -63,9 +75,7 @@ export default function ChatView({ conversationId, messages, onMessageSent, onTo
           <Menu size={20} />
         </button>
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-elena-accent flex items-center justify-center">
-            <Sparkles size={16} className="text-white" />
-          </div>
+          <ElenaLogo size={32} />
           <div>
             <div className="text-sm font-semibold text-white">Elena</div>
             <div className="text-xs text-elena-muted">Medically Modern AI Assistant</div>
@@ -78,8 +88,8 @@ export default function ChatView({ conversationId, messages, onMessageSent, onTo
         {isEmpty ? (
           /* Welcome screen */
           <div className="flex flex-col items-center justify-center h-full px-4">
-            <div className="w-16 h-16 rounded-2xl bg-elena-accent/20 flex items-center justify-center mb-6">
-              <Sparkles size={32} className="text-elena-accent" />
+            <div className="mb-6">
+              <ElenaLogo size={64} className="rounded-2xl" />
             </div>
             <h1 className="text-2xl font-bold text-white mb-2">Hi, I'm Elena</h1>
             <p className="text-elena-muted text-center max-w-md mb-8">
@@ -103,8 +113,8 @@ export default function ChatView({ conversationId, messages, onMessageSent, onTo
             {messages.map((msg, i) => (
               <div key={i} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : ''}`}>
                 {msg.role === 'assistant' && (
-                  <div className="w-8 h-8 rounded-full bg-elena-accent/20 flex items-center justify-center flex-shrink-0 mt-1">
-                    <Sparkles size={14} className="text-elena-accent" />
+                  <div className="flex-shrink-0 mt-1">
+                    <ElenaLogo size={32} />
                   </div>
                 )}
                 <div className={`max-w-[80%] ${
@@ -126,8 +136,8 @@ export default function ChatView({ conversationId, messages, onMessageSent, onTo
             {/* Typing indicator */}
             {loading && (
               <div className="flex gap-3">
-                <div className="w-8 h-8 rounded-full bg-elena-accent/20 flex items-center justify-center flex-shrink-0">
-                  <Sparkles size={14} className="text-elena-accent" />
+                <div className="flex-shrink-0">
+                  <ElenaLogo size={32} />
                 </div>
                 <div className="flex items-center gap-1 py-3">
                   <div className="typing-dot w-2 h-2 rounded-full bg-elena-muted" />
