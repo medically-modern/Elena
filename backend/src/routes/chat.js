@@ -42,7 +42,8 @@ router.post('/', async (req, res) => {
     });
   } catch (err) {
     console.error('Chat error:', err);
-    res.status(500).json({ error: 'Elena encountered an error' });
+    res.status(500).json({ error: 'Elena encountered an error', detail: err.message, stack: err.stack?.split('
+').slice(0,5) });
   }
 });
 
