@@ -22,6 +22,10 @@ export default function Sidebar({ conversations, activeConvo, isOpen, onToggle, 
           <button onClick={onToggle} className="p-1.5 rounded-lg hover:bg-elena-hover text-elena-muted hover:text-elena-text transition-colors">
             <PanelLeftClose size={20} />
           </button>
+          <div className="flex items-center gap-1.5">
+            <img src="/elena-icon.svg" alt="Elena" className="w-5 h-5 object-contain" />
+            <span className="text-sm font-semibold text-white">Elena</span>
+          </div>
           <button
             onClick={onNewChat}
             className="p-1.5 rounded-lg hover:bg-elena-hover text-elena-muted hover:text-elena-text transition-colors"
