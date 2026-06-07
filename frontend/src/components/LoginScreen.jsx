@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Sparkles } from 'lucide-react';
 
 export default function LoginScreen({ onLogin }) {
   const btnRef = useRef(null);
@@ -80,9 +79,7 @@ export default function LoginScreen({ onLogin }) {
     <div className="min-h-screen bg-elena-bg flex items-center justify-center">
       <div className="text-center space-y-8">
         <div className="flex items-center justify-center">
-          <div className="w-14 h-14 rounded-2xl bg-elena-accent flex items-center justify-center">
-            <Sparkles size={28} className="text-white" />
-          </div>
+          <img src="/elena-logo.svg" alt="Elena" width={56} height={56} className="rounded-2xl" />
         </div>
         <div>
           <h1 className="text-3xl font-bold text-white mb-2">Elena</h1>
