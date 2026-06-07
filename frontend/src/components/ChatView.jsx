@@ -67,19 +67,10 @@ export default function ChatView({ conversationId, messages, onMessageSent, onTo
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-elena-border">
-        <button onClick={onToggleSidebar} className="p-1.5 rounded-lg hover:bg-elena-hover text-elena-muted hover:text-elena-text transition-colors md:hidden">
+      <div className="flex items-center px-4 py-3 border-b border-elena-border md:hidden">
+        <button onClick={onToggleSidebar} className="p-1.5 rounded-lg hover:bg-elena-hover text-elena-muted hover:text-elena-text transition-colors">
           <Menu size={20} />
         </button>
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-elena-accent/20 flex items-center justify-center">
-            <ElenaLogo size={20} />
-          </div>
-          <div>
-            <div className="text-sm font-semibold text-white">Elena</div>
-            <div className="text-xs text-elena-muted">Medically Modern AI Assistant</div>
-          </div>
-        </div>
       </div>
 
       {/* Messages area */}
