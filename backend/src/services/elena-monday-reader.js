@@ -289,7 +289,7 @@ export async function searchPatient(name) {
         boards(ids: ${boardId}) {
           items_page(limit: 25, query_params: {
             rules: [{ column_id: "name", compare_value: "${name.replace(/"/g, '\\"')}" }],
-            operator: any_of
+            operator: or
           }) {
             items {
               id
