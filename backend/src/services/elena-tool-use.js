@@ -27,6 +27,19 @@ import {
   BOARD_GROUPS,
 } from './elena-monday-reader.js';
 
+// ─── Rules Engine (shared pgvector) ────────────────────────────────────────────
+
+let getAllActiveRules, deactivateRule;
+try {
+  const rules = await import('./rules.js');
+  getAllActiveRules = rules.getAllActiveRules;
+  deactivateRule = rules.deactivateRule;
+} catch (err) {
+  console.warn('[elena-tool-use] Rules module not available:', err.message);
+  getAllActiveRules = async () => [];
+  deactivateRule = async () => null;
+}
+
 // ─── Anthropic Client ───────────────────────────────────────────────────────────
 
 const anthropic = new Anthropic();
@@ -219,6 +232,26 @@ const TOOLS = [
       required: ['action', 'path'],
     },
   },
+  {
+    name: 'manage_rules',
+    description:
+      'View and manage Elena\'s learned rules (business rules that override all other context). Use list_rules to see all active rules. Use delete_rule to remove a specific rule by ID. IMPORTANT: when a user asks to forget or delete a rule, ALWAYS call list_rules first, show the matching rule(s) to the user, and ask for explicit confirmation BEFORE calling delete_rule.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['list_rules', 'delete_rule'],
+          description: 'list_rules to see all active rules, delete_rule to deactivate a specific rule',
+        },
+        rule_id: {
+          type: 'number',
+          description: 'Rule ID to delete (required for delete_rule). Get this from list_rules first.',
+        },
+      },
+      required: ['action'],
+    },
+  },
 ];
 
 // ─── GitHub Code Lookup ────────────────────────────────────────────────────────
@@ -338,6 +371,40 @@ async function executeTool(toolName, toolInput) {
 
       case 'lookup_command_center_code': {
         return await fetchCommandCenterCode(toolInput.action, toolInput.path);
+      }
+
+      case 'manage_rules': {
+        if (toolInput.action === 'list_rules') {
+          const rules = await getAllActiveRules();
+          if (rules.length === 0) {
+            return JSON.stringify({ rules: [], message: 'No active rules.' });
+          }
+          return JSON.stringify({
+            count: rules.length,
+            rules: rules.map(r => ({
+              id: r.id,
+              rule: r.content,
+              category: r.category,
+              created: r.created_at,
+            })),
+          });
+        }
+        if (toolInput.action === 'delete_rule') {
+          if (!toolInput.rule_id) {
+            return JSON.stringify({ error: 'rule_id is required for delete_rule' });
+          }
+          const deactivated = await deactivateRule(toolInput.rule_id);
+          if (!deactivated) {
+            return JSON.stringify({ error: `Rule ${toolInput.rule_id} not found or already deleted.` });
+          }
+          return JSON.stringify({
+            deleted: true,
+            id: deactivated.id,
+            rule: deactivated.content,
+            message: 'Rule has been deactivated.',
+          });
+        }
+        return JSON.stringify({ error: `Unknown action: ${toolInput.action}` });
       }
 
       default:
