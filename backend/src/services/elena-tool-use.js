@@ -29,11 +29,12 @@ import {
 
 // ─── Rules Engine (shared pgvector) ────────────────────────────────────────────
 
-let getAllActiveRules, deactivateRule;
+let getAllActiveRules, deactivateRule, createRule;
 try {
   const rules = await import('./rules.js');
   getAllActiveRules = rules.getAllActiveRules;
   deactivateRule = rules.deactivateRule;
+  createRule = rules.createRule;
 } catch (err) {
   console.warn('[elena-tool-use] Rules module not available:', err.message);
   getAllActiveRules = async () => [];
@@ -235,14 +236,22 @@ const TOOLS = [
   {
     name: 'manage_rules',
     description:
-      'View and manage Elena\'s learned rules (business rules that override all other context). Use list_rules to see all active rules. Use delete_rule to remove a specific rule by ID. IMPORTANT: when a user asks to forget or delete a rule, ALWAYS call list_rules first, show the matching rule(s) to the user, and ask for explicit confirmation BEFORE calling delete_rule.',
+      'View and manage Elena\'s learned rules (business rules that override all other context). Use list_rules to see all active rules. Use create_rule to add a new rule. Use delete_rule to remove a specific rule by ID. IMPORTANT: when a user asks to forget or delete a rule, ALWAYS call list_rules first, show the matching rule(s) to the user, and ask for explicit confirmation BEFORE calling delete_rule.',
     input_schema: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['list_rules', 'delete_rule'],
-          description: 'list_rules to see all active rules, delete_rule to deactivate a specific rule',
+          enum: ['list_rules', 'create_rule', 'delete_rule'],
+          description: 'list_rules to see all active rules, create_rule to add a new rule, delete_rule to deactivate a specific rule',
+        },
+        rule_text: {
+          type: 'string',
+          description: 'The rule text to save (required for create_rule). Should be a clear, concise statement.',
+        },
+        category: {
+          type: 'string',
+          description: 'Category for the rule (optional for create_rule). Defaults to "general".',
         },
         rule_id: {
           type: 'number',
@@ -387,6 +396,19 @@ async function executeTool(toolName, toolInput) {
               category: r.category,
               created: r.created_at,
             })),
+          });
+        }
+        if (toolInput.action === 'create_rule') {
+          if (!toolInput.rule_text) {
+            return JSON.stringify({ error: 'rule_text is required for create_rule' });
+          }
+          const rule = await createRule(toolInput.rule_text, toolInput.category || 'general');
+          return JSON.stringify({
+            created: true,
+            id: rule.id,
+            rule: rule.content,
+            category: rule.category,
+            message: 'Rule saved successfully.',
           });
         }
         if (toolInput.action === 'delete_rule') {
