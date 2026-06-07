@@ -354,9 +354,6 @@ export async function getPatient(itemId, boardId) {
     throw new Error('getPatient requires both itemId and boardId');
   }
 
-  const columnIds = getColumnIdsForBoard(boardId);
-  const columnIdsStr = columnIds.map(id => `"${id}"`).join(', ');
-
   const query = `
     {
       items(ids: [${itemId}]) {
@@ -364,8 +361,9 @@ export async function getPatient(itemId, boardId) {
         name
         board { id }
         group { id title }
-        column_values(ids: [${columnIdsStr}]) {
+        column_values {
           id
+          title
           text
           value
         }
@@ -381,15 +379,17 @@ export async function getPatient(itemId, boardId) {
   }
 
   const item = items[0];
-  const rawCols = parseColumnValues(item.column_values);
-  const fieldNames = columnIdToFieldName(boardId);
   const groupInfo = GROUP_REVERSE[item.group.id] || { groupAlias: item.group.title };
 
-  // Build a human-readable column map: fieldName → text value
+  // Build a human-readable column map using Monday's own column titles.
+  // Skip separator/header columns (titles ending in --> or →) and empty values.
   const columns = {};
-  for (const [colId, data] of Object.entries(rawCols)) {
-    const fieldName = fieldNames[colId] || colId;
-    columns[fieldName] = data.text;
+  for (const cv of item.column_values) {
+    const title = cv.title || cv.id;
+    if (!cv.text && !cv.value) continue;                   // skip empty
+    if (/-->$|→$/.test(title.trim())) continue;            // skip section headers
+    if (title.trim() === '<-->') continue;                  // skip spacers
+    columns[title] = cv.text || '';
   }
 
   return {
