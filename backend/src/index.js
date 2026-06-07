@@ -5,12 +5,14 @@ import { fileURLToPath } from 'url';
 import { initDb } from './db/init.js';
 import { initVectorStore, setupSchema } from './services/vectorStore.js';
 import { warmup as warmupEmbeddings } from './services/embeddings.js';
+import { initRulesPool, setupRulesSchema } from './services/rules.js';
 import { authMiddleware, optionalAuth } from './middleware/auth.js';
 import authRoutes from './routes/auth.js';
 import chatRoutes from './routes/chat.js';
 import conversationRoutes from './routes/conversations.js';
 import adminRoutes from './routes/admin.js';
 import ingestRoutes from './routes/ingest.js';
+import rulesRoutes from './routes/rules.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -39,6 +41,7 @@ app.use('/api/chat', authMiddleware, chatRoutes);
 app.use('/api/conversations', authMiddleware, conversationRoutes);
 app.use('/api/admin', authMiddleware, adminRoutes);
 app.use('/api/ingest', authMiddleware, ingestRoutes);
+app.use('/api/rules', authMiddleware, rulesRoutes);
 
 // Serve frontend
 app.use(express.static(path.join(__dirname, '../public')));
@@ -53,14 +56,20 @@ initDb();
 
 if (process.env.DATABASE_URL) {
   const connected = initVectorStore();
+  const rulesConnected = initRulesPool();
   if (connected) {
     setupSchema()
       .then(() => console.log('pgvector ready'))
       .catch(err => console.error('pgvector setup failed:', err.message));
   }
+  if (rulesConnected) {
+    setupRulesSchema()
+      .then(() => console.log('Rules engine ready — shared rules active'))
+      .catch(err => console.error('Rules schema setup failed:', err.message));
+  }
   warmupEmbeddings().catch(() => {});
 } else {
-  console.log('No DATABASE_URL — RAG disabled, hardcoded knowledge only');
+  console.log('No DATABASE_URL — RAG + rules disabled, hardcoded knowledge only');
 }
 
 app.listen(PORT, () => console.log('Elena running on port ' + PORT));
