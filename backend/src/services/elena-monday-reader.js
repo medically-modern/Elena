@@ -359,27 +359,22 @@ export async function getPatient(itemId, boardId) {
 
   const query = `
     {
-      boards(ids: ${boardId}) {
-        items_page(limit: 1, query_params: {
-          rules: [{ column_id: "id", compare_value: ["${itemId}"] }]
-        }) {
-          items {
-            id
-            name
-            group { id title }
-            column_values(ids: [${columnIdsStr}]) {
-              id
-              text
-              value
-            }
-          }
+      items(ids: [${itemId}]) {
+        id
+        name
+        board { id }
+        group { id title }
+        column_values(ids: [${columnIdsStr}]) {
+          id
+          text
+          value
         }
       }
     }
   `;
 
   const data = await mondayQuery(query);
-  const items = data.boards?.[0]?.items_page?.items || [];
+  const items = data.items || [];
 
   if (items.length === 0) {
     throw new Error(`Patient with item ID ${itemId} not found on board ${boardId}`);
