@@ -19,10 +19,12 @@ router.post('/', async (req, res) => {
     if (!convoId) {
       convoId = uuidv4();
       db.prepare('INSERT INTO conversations (id, user_id) VALUES (?, ?)').run(convoId, userId);
-    } else if (userId && userId !== 'portal') {
-      // Verify conversation belongs to user
-      const convo = db.prepare('SELECT user_id FROM conversations WHERE id = ?').get(convoId);
-      if (convo && convo.user_id && convo.user_id !== userId) {
+    } else {
+      // Ensure conversation exists (upsert)
+      const existing = db.prepare('SELECT id, user_id FROM conversations WHERE id = ?').get(convoId);
+      if (!existing) {
+        db.prepare('INSERT INTO conversations (id, user_id) VALUES (?, ?)').run(convoId, userId);
+      } else if (userId && userId !== 'portal' && existing.user_id && existing.user_id !== userId) {
         return res.status(403).json({ error: 'Not your conversation' });
       }
     }
@@ -42,7 +44,7 @@ router.post('/', async (req, res) => {
     });
   } catch (err) {
     console.error('Chat error:', err);
-    res.status(500).json({ error: 'Elena encountered an error', detail: err.message, stack: (err.stack || '').split('\n').slice(0, 5) });
+    res.status(500).json({ error: 'Elena encountered an error' });
   }
 });
 
