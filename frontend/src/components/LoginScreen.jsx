@@ -79,7 +79,9 @@ export default function LoginScreen({ onLogin }) {
     <div className="min-h-screen bg-elena-bg flex items-center justify-center">
       <div className="text-center space-y-8">
         <div className="flex items-center justify-center">
-          <img src="/elena-logo.svg" alt="Elena" width={56} height={56} className="rounded-2xl" />
+          <div className="w-20 h-20 rounded-2xl bg-elena-surface border border-elena-border flex items-center justify-center">
+            <img src="/elena-icon.svg" alt="Elena" className="w-12 h-12 object-contain" />
+          </div>
         </div>
         <div>
           <h1 className="text-3xl font-bold text-white mb-2">Elena</h1>

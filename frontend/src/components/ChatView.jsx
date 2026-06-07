@@ -13,11 +13,10 @@ const SUGGESTIONS = [
 function ElenaLogo({ size = 32, className = '' }) {
   return (
     <img
-      src="/elena-logo.svg"
+      src="/elena-icon.svg"
       alt="Elena"
-      width={size}
-      height={size}
-      className={`rounded-full ${className}`}
+      className={`object-contain ${className}`}
+      style={{ width: size, height: size, minWidth: size, minHeight: size }}
     />
   );
 }
@@ -28,12 +27,10 @@ export default function ChatView({ conversationId, messages, onMessageSent, onTo
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
 
-  // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -75,7 +72,9 @@ export default function ChatView({ conversationId, messages, onMessageSent, onTo
           <Menu size={20} />
         </button>
         <div className="flex items-center gap-2">
-          <ElenaLogo size={32} />
+          <div className="w-8 h-8 rounded-full bg-elena-accent/20 flex items-center justify-center">
+            <ElenaLogo size={20} />
+          </div>
           <div>
             <div className="text-sm font-semibold text-white">Elena</div>
             <div className="text-xs text-elena-muted">Medically Modern AI Assistant</div>
@@ -86,10 +85,9 @@ export default function ChatView({ conversationId, messages, onMessageSent, onTo
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto">
         {isEmpty ? (
-          /* Welcome screen */
           <div className="flex flex-col items-center justify-center h-full px-4">
-            <div className="mb-6">
-              <ElenaLogo size={64} className="rounded-2xl" />
+            <div className="w-16 h-16 rounded-2xl bg-elena-accent/20 flex items-center justify-center mb-6">
+              <ElenaLogo size={40} />
             </div>
             <h1 className="text-2xl font-bold text-white mb-2">Hi, I'm Elena</h1>
             <p className="text-elena-muted text-center max-w-md mb-8">
@@ -108,13 +106,12 @@ export default function ChatView({ conversationId, messages, onMessageSent, onTo
             </div>
           </div>
         ) : (
-          /* Message list */
           <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
             {messages.map((msg, i) => (
               <div key={i} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : ''}`}>
                 {msg.role === 'assistant' && (
-                  <div className="flex-shrink-0 mt-1">
-                    <ElenaLogo size={32} />
+                  <div className="w-8 h-8 rounded-full bg-elena-accent/20 flex items-center justify-center flex-shrink-0 mt-1">
+                    <ElenaLogo size={20} />
                   </div>
                 )}
                 <div className={`max-w-[80%] ${
@@ -133,11 +130,10 @@ export default function ChatView({ conversationId, messages, onMessageSent, onTo
               </div>
             ))}
 
-            {/* Typing indicator */}
             {loading && (
               <div className="flex gap-3">
-                <div className="flex-shrink-0">
-                  <ElenaLogo size={32} />
+                <div className="w-8 h-8 rounded-full bg-elena-accent/20 flex items-center justify-center flex-shrink-0">
+                  <ElenaLogo size={20} />
                 </div>
                 <div className="flex items-center gap-1 py-3">
                   <div className="typing-dot w-2 h-2 rounded-full bg-elena-muted" />

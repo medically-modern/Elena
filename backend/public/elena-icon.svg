@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="370 575 1310 900" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="leftRing" x1="0.2" y1="0.1" x2="0.8" y2="0.9">
+      <stop offset="0%" stop-color="#5CA09D"/>
+      <stop offset="100%" stop-color="#3F8381"/>
+    </linearGradient>
+    <linearGradient id="rightRing" x1="0.2" y1="0.1" x2="0.8" y2="0.9">
+      <stop offset="0%" stop-color="#8CC2B4"/>
+      <stop offset="100%" stop-color="#6BAD9D"/>
+    </linearGradient>
+    <clipPath id="lowerHalf">
+      <rect x="0" y="1024" width="2048" height="1024"/>
+    </clipPath>
+  </defs>
+  <circle cx="1230" cy="1024" r="296" fill="none"
+          stroke="url(#rightRing)" stroke-width="248"/>
+  <circle cx="818" cy="1024" r="296" fill="none"
+          stroke="url(#leftRing)" stroke-width="248"/>
+  <g clip-path="url(#lowerHalf)">
+    <circle cx="1230" cy="1024" r="296" fill="none"
+            stroke="url(#rightRing)" stroke-width="248"/>
+  </g>
+</svg>
