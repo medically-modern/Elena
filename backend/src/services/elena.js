@@ -5,6 +5,7 @@ import { CEO_SYSTEM_PROMPT } from '../config/ceo-personality.js';
 import { KNOWLEDGE_BASE } from '../config/knowledge-base.js';
 import { embed } from './embeddings.js';
 import { search, keywordSearch, isReady as ragReady } from './vectorStore.js';
+import { chatWithTools } from './elena-tool-use.js';
 
 // Rules engine — shared source of truth, overrides all other context
 let rulesReadyFn, buildRulesBlock, createRuleFn;
@@ -73,19 +74,15 @@ export async function chat(conversationId, userMessage, mode = 'standard') {
     }
   }
 
-  const messages = [
-    ...history.map(h => ({ role: h.role, content: h.content })),
-    { role: 'user', content: userMessage }
-  ];
+  const previousMessages = history.map(h => ({ role: h.role, content: h.content }));
 
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 1024,
-    system: systemPrompt,
-    messages
-  });
-
-  const assistantMessage = response.content[0].text;
+  // Use chatWithTools for Monday.com + Command Center code lookup access
+  const assistantMessage = await chatWithTools(
+    conversationId,
+    userMessage,
+    systemPrompt,
+    previousMessages
+  );
 
   // Save both messages
   db.prepare('INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)').run(conversationId, 'user', userMessage);
