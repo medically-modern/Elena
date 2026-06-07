@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { OAuth2Client } from 'google-auth-library';
+import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../db/init.js';
 import { generateToken } from '../middleware/auth.js';
 
@@ -43,7 +44,7 @@ router.post('/google', async (req, res) => {
       ).run(email, name, picture, googleId);
       user = { ...existing, email, name, picture };
     } else {
-      const id = crypto.randomUUID();
+      const id = uuidv4();
       db.prepare(
         'INSERT INTO users (id, google_id, email, name, picture) VALUES (?, ?, ?, ?, ?)'
       ).run(id, googleId, email, name, picture);
