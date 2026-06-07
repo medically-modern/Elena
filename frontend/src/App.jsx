@@ -14,8 +14,8 @@ export default function App() {
 
   // Check for existing token on mount
   useEffect(() => {
-    const token = sessionStorage.getItem('elena_token');
-    const savedUser = sessionStorage.getItem('elena_user');
+    const token = localStorage.getItem('elena_token');
+    const savedUser = localStorage.getItem('elena_user');
     if (token && savedUser) {
       setAuthToken(token);
       setUser(JSON.parse(savedUser));
@@ -24,15 +24,15 @@ export default function App() {
   }, []);
 
   const handleLogin = (token, userData) => {
-    sessionStorage.setItem('elena_token', token);
-    sessionStorage.setItem('elena_user', JSON.stringify(userData));
+    localStorage.setItem('elena_token', token);
+    localStorage.setItem('elena_user', JSON.stringify(userData));
     setAuthToken(token);
     setUser(userData);
   };
 
   const handleLogout = () => {
-    sessionStorage.removeItem('elena_token');
-    sessionStorage.removeItem('elena_user');
+    localStorage.removeItem('elena_token');
+    localStorage.removeItem('elena_user');
     setAuthToken(null);
     setUser(null);
     setConversations([]);
