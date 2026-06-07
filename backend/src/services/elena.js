@@ -8,17 +8,21 @@ import { search, keywordSearch, isReady as ragReady } from './vectorStore.js';
 import { chatWithTools } from './elena-tool-use.js';
 
 // Rules engine — shared source of truth, overrides all other context
-let rulesReadyFn, buildRulesBlock, createRuleFn;
+let rulesReadyFn, buildRulesBlock, createRuleFn, getAllActiveRulesFn, deactivateRuleFn;
 try {
   const rules = await import('./rules.js');
   rulesReadyFn = rules.isRulesReady;
   buildRulesBlock = rules.buildRulesBlock;
   createRuleFn = rules.createRule;
+  getAllActiveRulesFn = rules.getAllActiveRules;
+  deactivateRuleFn = rules.deactivateRule;
 } catch (err) {
   console.warn('Rules module not available:', err.message);
   rulesReadyFn = () => false;
   buildRulesBlock = async () => '';
   createRuleFn = async () => null;
+  getAllActiveRulesFn = async () => [];
+  deactivateRuleFn = async () => null;
 }
 
 const anthropic = new Anthropic();
@@ -97,6 +101,9 @@ export async function chat(conversationId, userMessage, mode = 'standard') {
   // Detect if user is setting a rule (async, non-blocking)
   detectAndCreateRule(userMessage).catch(() => {});
 
+  // Detect if user wants to forget a rule (async, non-blocking)
+  detectAndForgetRule(userMessage).catch(() => {});
+
   return assistantMessage;
 }
 
@@ -156,4 +163,52 @@ JSON only, no explanation.`,
   } catch (err) {
     console.error('Rule detection error:', err.message);
   }
+}
+
+// Detect when user asks Elena to forget/delete a rule
+async function detectAndForgetRule(userMessage) {
+  const msgLower = userMessage.toLowerCase().trim();
+  const forgetTriggers = [
+    'elena forget', 'elena, forget',
+    'forget that', 'forget about',
+    'delete the rule', 'remove the rule',
+    'elena delete', 'elena remove',
+  ];
+  if (!forgetTriggers.some(s => msgLower.includes(s))) return null;
+
+  try {
+    const activeRules = await getAllActiveRulesFn();
+    if (activeRules.length === 0) return null;
+
+    const ruleList = activeRules.map(r => `ID ${r.id}: [${r.category}] ${r.content}`).join('\n');
+
+    const detection = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 200,
+      system: `The user wants to delete/forget a rule. Match their request to one of these active rules and return the ID. If no rule matches, return null.
+
+Active rules:
+${ruleList}
+
+Return JSON only: {"matched_id": <number or null>, "rule_text": "<the matched rule text or null>"}`,
+      messages: [{ role: 'user', content: userMessage }]
+    });
+
+    let raw = detection.content[0].text.trim();
+    if (raw.startsWith('```')) {
+      raw = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    }
+    const result = JSON.parse(raw);
+
+    if (result.matched_id) {
+      const deactivated = await deactivateRuleFn(result.matched_id);
+      if (deactivated) {
+        console.log(`Rule deactivated from chat: ID ${result.matched_id} — ${result.rule_text}`);
+        return deactivated;
+      }
+    }
+  } catch (err) {
+    console.error('Rule forget error:', err.message);
+  }
+  return null;
 }
