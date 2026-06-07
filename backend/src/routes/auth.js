@@ -51,10 +51,12 @@ router.post('/google', async (req, res) => {
       user = { id, google_id: googleId, email, name, picture };
     }
 
-    const token = generateToken(user);
+    // Use googleId as the stable userId in the JWT — survives redeployments
+    // (the UUID in users table changes each deploy since SQLite is ephemeral)
+    const token = generateToken({ ...user, id: googleId });
     res.json({
       token,
-      user: { id: user.id, email: user.email, name: user.name, picture: user.picture }
+      user: { id: googleId, email: user.email, name: user.name, picture: user.picture }
     });
   } catch (err) {
     console.error('Google auth error:', err);
@@ -65,7 +67,11 @@ router.post('/google', async (req, res) => {
 router.get('/me', (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
   const db = getDb();
-  const user = db.prepare('SELECT id, email, name, picture FROM users WHERE id = ?').get(req.user.userId);
+  // Try by google_id first (new stable ID), then fall back to old UUID
+  let user = db.prepare('SELECT id, email, name, picture FROM users WHERE google_id = ?').get(req.user.userId);
+  if (!user) {
+    user = db.prepare('SELECT id, email, name, picture FROM users WHERE id = ?').get(req.user.userId);
+  }
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json(user);
 });
