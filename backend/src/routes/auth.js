@@ -1,8 +1,13 @@
 import { Router } from 'express';
 import { OAuth2Client } from 'google-auth-library';
-import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../db/init.js';
 import { generateToken } from '../middleware/auth.js';
+import {
+  isConversationsReady,
+  upsertUser,
+  getUserByGoogleId,
+  getUserById,
+} from '../services/pgConversations.js';
 
 const router = Router();
 
@@ -34,25 +39,29 @@ router.post('/google', async (req, res) => {
       return res.status(403).json({ error: `Only ${allowedDomain} accounts are allowed` });
     }
 
-    const db = getDb();
-    const existing = db.prepare('SELECT * FROM users WHERE google_id = ?').get(googleId);
     let user;
 
-    if (existing) {
-      db.prepare(
-        "UPDATE users SET email = ?, name = ?, picture = ?, last_login = datetime('now') WHERE google_id = ?"
-      ).run(email, name, picture, googleId);
-      user = { ...existing, email, name, picture };
+    if (isConversationsReady()) {
+      // Postgres — user persists across deploys
+      user = await upsertUser(googleId, email, name, picture);
     } else {
-      const id = uuidv4();
-      db.prepare(
-        'INSERT INTO users (id, google_id, email, name, picture) VALUES (?, ?, ?, ?, ?)'
-      ).run(id, googleId, email, name, picture);
-      user = { id, google_id: googleId, email, name, picture };
+      // SQLite fallback
+      const db = getDb();
+      const existing = db.prepare('SELECT * FROM users WHERE google_id = ?').get(googleId);
+      if (existing) {
+        db.prepare(
+          "UPDATE users SET email = ?, name = ?, picture = ?, last_login = datetime('now') WHERE google_id = ?"
+        ).run(email, name, picture, googleId);
+        user = { ...existing, email, name, picture, google_id: googleId };
+      } else {
+        db.prepare(
+          'INSERT INTO users (id, google_id, email, name, picture) VALUES (?, ?, ?, ?, ?)'
+        ).run(googleId, googleId, email, name, picture);
+        user = { id: googleId, google_id: googleId, email, name, picture };
+      }
     }
 
-    // Use googleId as the stable userId in the JWT — survives redeployments
-    // (the UUID in users table changes each deploy since SQLite is ephemeral)
+    // Use googleId as the stable userId — never changes across deploys
     const token = generateToken({ ...user, id: googleId });
     res.json({
       token,
@@ -64,16 +73,24 @@ router.post('/google', async (req, res) => {
   }
 });
 
-router.get('/me', (req, res) => {
+router.get('/me', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
-  const db = getDb();
-  // Try by google_id first (new stable ID), then fall back to old UUID
-  let user = db.prepare('SELECT id, email, name, picture FROM users WHERE google_id = ?').get(req.user.userId);
-  if (!user) {
-    user = db.prepare('SELECT id, email, name, picture FROM users WHERE id = ?').get(req.user.userId);
+
+  let user;
+  if (isConversationsReady()) {
+    user = await getUserByGoogleId(req.user.userId);
+    if (!user) user = await getUserById(req.user.userId);
   }
+
+  if (!user) {
+    // SQLite fallback
+    const db = getDb();
+    user = db.prepare('SELECT id, email, name, picture FROM users WHERE google_id = ?').get(req.user.userId);
+    if (!user) user = db.prepare('SELECT id, email, name, picture FROM users WHERE id = ?').get(req.user.userId);
+  }
+
   if (!user) return res.status(404).json({ error: 'User not found' });
-  res.json(user);
+  res.json({ id: user.google_id || user.id, email: user.email, name: user.name, picture: user.picture });
 });
 
 export default router;

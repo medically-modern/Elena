@@ -1,5 +1,5 @@
-// pgConversations.js — persistent conversation store backed by shared Postgres
-// Replaces SQLite for conversations + messages so they survive redeployments.
+// pgConversations.js — persistent store backed by shared Postgres
+// Handles users, conversations, and messages so everything survives redeployments.
 // Used by both Elena standalone and Corey Portal.
 
 import pg from 'pg';
@@ -26,6 +26,19 @@ export async function setupConversationsSchema() {
   const client = await pool.connect();
   try {
     await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        google_id TEXT UNIQUE,
+        email TEXT,
+        name TEXT,
+        picture TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        last_login TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id);
+      CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
       CREATE TABLE IF NOT EXISTS conversations (
         id TEXT PRIMARY KEY,
         title TEXT DEFAULT 'New Chat',
@@ -59,6 +72,36 @@ export async function setupConversationsSchema() {
 
 export function isConversationsReady() {
   return !!pool;
+}
+
+// ─── Users CRUD ─────────────────────────────────────────────────────────────────
+
+export async function upsertUser(googleId, email, name, picture) {
+  if (!pool) return null;
+  const result = await pool.query(
+    `INSERT INTO users (id, google_id, email, name, picture, last_login)
+     VALUES ($1, $1, $2, $3, $4, NOW())
+     ON CONFLICT (google_id) DO UPDATE SET
+       email = EXCLUDED.email,
+       name = EXCLUDED.name,
+       picture = EXCLUDED.picture,
+       last_login = NOW()
+     RETURNING *`,
+    [googleId, email, name, picture]
+  );
+  return result.rows[0];
+}
+
+export async function getUserByGoogleId(googleId) {
+  if (!pool) return null;
+  const result = await pool.query('SELECT * FROM users WHERE google_id = $1', [googleId]);
+  return result.rows[0] || null;
+}
+
+export async function getUserById(id) {
+  if (!pool) return null;
+  const result = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
+  return result.rows[0] || null;
 }
 
 // ─── Conversation CRUD ─────────────────────────────────────────────────────────
@@ -119,7 +162,6 @@ export async function touchConversation(id) {
 
 export async function deleteConversation(id) {
   if (!pool) return;
-  // Messages deleted by ON DELETE CASCADE
   await pool.query('DELETE FROM conversations WHERE id = $1', [id]);
 }
 
@@ -148,7 +190,6 @@ export async function getMessages(conversationId, limit = null) {
 
 export async function getRecentMessages(conversationId, limit = 20) {
   if (!pool) return [];
-  // Get last N messages in chronological order
   const result = await pool.query(
     `SELECT id, role, content, context_module, created_at FROM (
        SELECT * FROM messages WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT $2
