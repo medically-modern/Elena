@@ -118,24 +118,35 @@ export async function search(queryEmbedding, limit = 8, threshold = 0.15) {
 // Keyword search — plain text matching for when semantic search misses
 export async function keywordSearch(query, limit = 5) {
   if (!pool) return [];
-  // Extract meaningful words
-  const words = query.toLowerCase().split(/\s+/).filter(w => w.length >= 3);
+  // Stopwords: common English words that would otherwise match noise chunks
+  const stopwords = new Set(['the','and','for','are','but','not','you','all','can','had','her','was','one','our','out','has','have','that','this','with','what','when','where','how','who','which','about','from','been','will','more','some','than','them','then','into','could','would','should','their','there','these','those','being','does','doing','got','get','back','mean','means','need','say','says','said','just','like','want','know','tell','they','its','also','very','any','each','other','please','did','why']);
+  // Split on non-alphanumerics (keep & for labels like "A&B"), dedupe, drop stopwords
+  const words = [...new Set(
+    query.toLowerCase().split(/[^a-z0-9&]+/)
+      .filter(w => w.length >= 3 && !stopwords.has(w))
+  )];
   if (words.length === 0) return [];
 
-  // Build ILIKE conditions — match chunks containing ANY keyword
-  const conditions = words.map((_, i) => `content ILIKE $${i + 1}`);
+  // Rank by how many distinct query terms each chunk matches, so a chunk
+  // containing "carc" + "96" + "n163" beats one matching only "era".
+  // Tiebreak: shorter chunks first (more focused content).
+  const scoreParts = words.map((_, i) => `(content ILIKE $${i + 1})::int`);
+  const whereParts = words.map((_, i) => `content ILIKE $${i + 1}`);
   const params = words.map(w => `%${w}%`);
   params.push(limit);
 
   const result = await pool.query(
-    `SELECT id, content, source, source_type, category, metadata, 0.0 as similarity
+    `SELECT id, content, source, source_type, category, metadata, 0.0 as similarity,
+            (${scoreParts.join(' + ')}) AS match_count
      FROM knowledge_vectors
-     WHERE ${conditions.join(' OR ')}
+     WHERE ${whereParts.join(' OR ')}
+     ORDER BY match_count DESC, length(content) ASC
      LIMIT $${params.length}`,
     params
   );
   return result.rows;
 }
+
 
 // Search within a specific source type or category
 export async function searchFiltered(queryEmbedding, filters = {}, limit = 5) {
