@@ -116,6 +116,10 @@ export async function search(queryEmbedding, limit = 8, threshold = 0.15) {
 }
 
 // Keyword search — plain text matching for when semantic search misses
+export function getPool() {
+  return pool;
+}
+
 export async function keywordSearch(query, limit = 5) {
   if (!pool) return [];
   // Stopwords: common English words that would otherwise match noise chunks
