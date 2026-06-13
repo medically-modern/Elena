@@ -13,7 +13,7 @@ const router = Router();
 // Send a message — creates conversation if needed
 router.post('/', async (req, res) => {
   try {
-    const { message, conversationId, mode } = req.body;
+    const { message, conversationId, mode, qaMode } = req.body;
     if (!message) return res.status(400).json({ error: 'Message required' });
 
     const userId = req.user?.userId || req.user?.id || null;
@@ -49,7 +49,7 @@ router.post('/', async (req, res) => {
     }
 
     const elenaMode = req.headers['x-elena-mode'] || mode || 'standard';
-    const response = await chat(convoId, message, elenaMode);
+    const response = await chat(convoId, message, elenaMode, !!qaMode);
 
     // Get title
     let title = 'New Chat';

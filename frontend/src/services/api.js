@@ -19,8 +19,8 @@ async function request(path, options = {}) {
 }
 
 export const api = {
-  sendMessage: (message, conversationId) =>
-    request("/chat", { method: "POST", body: JSON.stringify({ message, conversationId }) }),
+  sendMessage: (message, conversationId, qaMode = false) =>
+    request("/chat", { method: "POST", body: JSON.stringify({ message, conversationId, qaMode }) }),
   getConversations: () => request("/conversations"),
   getMessages: (id) => request(`/conversations/${id}/messages`),
   deleteConversation: (id) => request(`/conversations/${id}`, { method: "DELETE" }),

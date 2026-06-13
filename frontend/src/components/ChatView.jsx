@@ -24,6 +24,7 @@ function ElenaLogo({ size = 32, className = '' }) {
 export default function ChatView({ conversationId, messages, onMessageSent, onToggleSidebar }) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [qaMode, setQaMode] = useState(false);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
 
@@ -40,12 +41,12 @@ export default function ChatView({ conversationId, messages, onMessageSent, onTo
 
   const sendMessage = async (text) => {
     const msg = text || input.trim();
-    if (!msg || loading) return;
+    if (!msg || loading || capReached) return;
     setInput('');
     setLoading(true);
 
     try {
-      const data = await api.sendMessage(msg, conversationId);
+      const data = await api.sendMessage(msg, conversationId, qaMode);
       onMessageSent(data.conversationId, msg, data.message, data.title);
     } catch (err) {
       console.error('Send error:', err);
@@ -61,6 +62,10 @@ export default function ChatView({ conversationId, messages, onMessageSent, onTo
       sendMessage();
     }
   };
+
+  const MAX_USER_MESSAGES = 8;
+  const userMessageCount = messages.filter((m) => m.role === 'user').length;
+  const capReached = userMessageCount >= MAX_USER_MESSAGES;
 
   const isEmpty = messages.length === 0 && !loading;
 
@@ -141,22 +146,35 @@ export default function ChatView({ conversationId, messages, onMessageSent, onTo
       {/* Input area */}
       <div className="border-t border-elena-border p-4">
         <div className="max-w-3xl mx-auto">
-          <div className="flex items-end gap-2 bg-elena-surface border border-elena-border rounded-2xl px-4 py-2 focus-within:border-elena-accent/50 transition-colors">
+          {/* Q&A mode toggle + per-chat message counter */}
+          <div className="flex items-center justify-between mb-2 px-1">
+            <label className="flex items-center gap-2 text-xs text-elena-muted cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={qaMode}
+                onChange={(e) => setQaMode(e.target.checked)}
+                className="accent-elena-accent"
+              />
+              Q&amp;A mode — faster, skips Monday.com lookups
+            </label>
+            <span className="text-xs text-elena-muted">{userMessageCount}/{MAX_USER_MESSAGES}</span>
+          </div>
+          <div className={`flex items-end gap-2 bg-elena-surface border rounded-2xl px-4 py-2 transition-colors ${capReached ? 'border-elena-border opacity-60' : 'border-elena-border focus-within:border-elena-accent/50'}`}>
             <textarea
               ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask Elena anything..."
+              placeholder={capReached ? 'Maximum responses reached — start a new chat' : 'Ask Elena anything...'}
               rows={1}
-              className="flex-1 bg-transparent text-elena-text placeholder-elena-muted outline-none text-sm py-1.5 max-h-[200px]"
-              disabled={loading}
+              className="flex-1 bg-transparent text-elena-text placeholder-elena-muted outline-none text-sm py-1.5 max-h-[200px] disabled:cursor-not-allowed"
+              disabled={loading || capReached}
             />
             <button
               onClick={() => sendMessage()}
-              disabled={!input.trim() || loading}
+              disabled={!input.trim() || loading || capReached}
               className={`p-2 rounded-xl transition-colors ${
-                input.trim() && !loading
+                input.trim() && !loading && !capReached
                   ? 'bg-elena-accent hover:bg-elena-accentHover text-white'
                   : 'text-elena-muted cursor-not-allowed'
               }`}
@@ -164,7 +182,11 @@ export default function ChatView({ conversationId, messages, onMessageSent, onTo
               <Send size={16} />
             </button>
           </div>
-          <p className="text-xs text-elena-muted text-center mt-2">Elena can make mistakes. Verify important info with your team.</p>
+          {capReached ? (
+            <p className="text-xs text-amber-400 text-center mt-2">Maximum responses per chat is capped at 8. Start a new chat to continue.</p>
+          ) : (
+            <p className="text-xs text-elena-muted text-center mt-2">Elena can make mistakes. Verify important info with your team.</p>
+          )}
         </div>
       </div>
     </div>
