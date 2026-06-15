@@ -32,7 +32,7 @@ try {
 
 const anthropic = new Anthropic();
 
-const SONNET_MODEL = process.env.SONNET_MODEL || 'claude-sonnet-4-20250514';
+const SONNET_MODEL = process.env.SONNET_MODEL || 'claude-sonnet-4-6';
 const HAIKU_MODEL = process.env.HAIKU_MODEL || 'claude-haiku-4-5-20251001';
 
 export async function chat(conversationId, userMessage, mode = 'standard', qaMode = false) {

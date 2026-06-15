@@ -475,7 +475,7 @@ export async function chatWithTools(conversationId, userMessage, systemPrompt, h
     console.log(`[elena-tool-use] [${conversationId}] Round ${round} — calling Claude with ${messages.length} messages`);
 
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 4096,
       system: systemPrompt,
       tools: TOOLS,
@@ -538,7 +538,7 @@ export async function chatWithTools(conversationId, userMessage, systemPrompt, h
 //
 //   // Before (simple call):
 //   // const response = await anthropic.messages.create({
-//   //   model: 'claude-sonnet-4-20250514',
+//   //   model: 'claude-sonnet-4-6',
 //   //   max_tokens: 4096,
 //   //   system: systemPrompt,
 //   //   messages: conversationMessages,
