@@ -29,12 +29,11 @@ import {
 
 // ─── Rules Engine (shared pgvector) ────────────────────────────────────────────
 
-let getAllActiveRules, deactivateRule, createRule;
+let getAllActiveRules, deactivateRule;
 try {
   const rules = await import('./rules.js');
   getAllActiveRules = rules.getAllActiveRules;
   deactivateRule = rules.deactivateRule;
-  createRule = rules.createRule;
 } catch (err) {
   console.warn('[elena-tool-use] Rules module not available:', err.message);
   getAllActiveRules = async () => [];
@@ -44,6 +43,7 @@ try {
 // ─── Anthropic Client ───────────────────────────────────────────────────────────
 
 const anthropic = new Anthropic();
+const SONNET_MODEL = process.env.SONNET_MODEL || 'claude-sonnet-4-6';
 
 // ─── Board / Group ID Mapping ───────────────────────────────────────────────────
 
@@ -236,22 +236,14 @@ const TOOLS = [
   {
     name: 'manage_rules',
     description:
-      'View and manage Elena\'s learned rules (business rules that override all other context). Use list_rules to see all active rules. Use create_rule to add a new rule. Use delete_rule to remove a specific rule by ID. IMPORTANT: when a user asks to forget or delete a rule, ALWAYS call list_rules first, show the matching rule(s) to the user, and ask for explicit confirmation BEFORE calling delete_rule.',
+      'View and manage Elena\'s learned rules (business rules that override all other context). Use list_rules to see all active rules. Use delete_rule to remove a specific rule by ID. IMPORTANT: when a user asks to forget or delete a rule, ALWAYS call list_rules first, show the matching rule(s) to the user, and ask for explicit confirmation BEFORE calling delete_rule.',
     input_schema: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['list_rules', 'create_rule', 'delete_rule'],
-          description: 'list_rules to see all active rules, create_rule to add a new rule, delete_rule to deactivate a specific rule',
-        },
-        rule_text: {
-          type: 'string',
-          description: 'The rule text to save (required for create_rule). Should be a clear, concise statement.',
-        },
-        category: {
-          type: 'string',
-          description: 'Category for the rule (optional for create_rule). Defaults to "general".',
+          enum: ['list_rules', 'delete_rule'],
+          description: 'list_rules to see all active rules, delete_rule to deactivate a specific rule',
         },
         rule_id: {
           type: 'number',
@@ -398,19 +390,6 @@ async function executeTool(toolName, toolInput) {
             })),
           });
         }
-        if (toolInput.action === 'create_rule') {
-          if (!toolInput.rule_text) {
-            return JSON.stringify({ error: 'rule_text is required for create_rule' });
-          }
-          const rule = await createRule(toolInput.rule_text, toolInput.category || 'general');
-          return JSON.stringify({
-            created: true,
-            id: rule.id,
-            rule: rule.content,
-            category: rule.category,
-            message: 'Rule saved successfully.',
-          });
-        }
         if (toolInput.action === 'delete_rule') {
           if (!toolInput.rule_id) {
             return JSON.stringify({ error: 'rule_id is required for delete_rule' });
@@ -442,6 +421,36 @@ async function executeTool(toolName, toolInput) {
   }
 }
 
+// ─── Status Descriptions ────────────────────────────────────────────────────────
+
+/**
+ * Generate a human-readable status message for a tool call.
+ */
+function describeToolUse(toolName, input) {
+  switch (toolName) {
+    case 'search_patient':
+      return `Searching for patient "${input.name}"...`;
+    case 'get_patient_details':
+      return `Pulling patient details from ${input.board?.replace(/_/g, ' ')}...`;
+    case 'get_ui_state':
+      return `Checking Command Center status...`;
+    case 'list_patients_in_stage':
+      return `Loading ${input.group} queue...`;
+    case 'explain_field':
+      return `Looking up field "${input.field_name}"...`;
+    case 'lookup_command_center_code':
+      return input.action === 'list_files'
+        ? `Browsing code repository...`
+        : `Reading source code...`;
+    case 'manage_rules':
+      return input.action === 'list_rules'
+        ? `Checking active rules...`
+        : `Updating rules...`;
+    default:
+      return `Working...`;
+  }
+}
+
 // ─── Tool-Use Loop ──────────────────────────────────────────────────────────────
 
 /** Maximum number of tool-use round trips to prevent infinite loops */
@@ -458,9 +467,10 @@ const MAX_TOOL_ROUNDS = 10;
  * @param {string} userMessage - The user's latest message
  * @param {string} systemPrompt - System prompt for Claude
  * @param {Array<{role: string, content: string|Array}>} history - Previous message history
+ * @param {((status: string) => void)|null} onStatus - Optional callback for streaming status updates
  * @returns {Promise<string>} The final assistant text response
  */
-export async function chatWithTools(conversationId, userMessage, systemPrompt, history = []) {
+export async function chatWithTools(conversationId, userMessage, systemPrompt, history = [], onStatus = null) {
   // Build the messages array: history + new user message
   const messages = [
     ...history,
@@ -475,7 +485,7 @@ export async function chatWithTools(conversationId, userMessage, systemPrompt, h
     console.log(`[elena-tool-use] [${conversationId}] Round ${round} — calling Claude with ${messages.length} messages`);
 
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: SONNET_MODEL,
       max_tokens: 4096,
       system: systemPrompt,
       tools: TOOLS,
@@ -503,6 +513,12 @@ export async function chatWithTools(conversationId, userMessage, systemPrompt, h
       for (const toolUse of toolUseBlocks) {
         console.log(`[elena-tool-use] [${conversationId}] Executing tool: ${toolUse.name}`, JSON.stringify(toolUse.input));
 
+        // Send human-readable status update
+        if (onStatus) {
+          const status = describeToolUse(toolUse.name, toolUse.input);
+          onStatus(status);
+        }
+
         const result = await executeTool(toolUse.name, toolUse.input);
 
         toolResults.push({
@@ -514,6 +530,8 @@ export async function chatWithTools(conversationId, userMessage, systemPrompt, h
 
       // Add tool results as a user message (per Anthropic's tool_use protocol)
       messages.push({ role: 'user', content: toolResults });
+
+      if (onStatus) onStatus('Analyzing results...');
 
       // Continue the loop — Claude will process the tool results
       continue;

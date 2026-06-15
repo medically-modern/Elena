@@ -32,10 +32,7 @@ try {
 
 const anthropic = new Anthropic();
 
-const SONNET_MODEL = process.env.SONNET_MODEL || 'claude-sonnet-4-6';
-const HAIKU_MODEL = process.env.HAIKU_MODEL || 'claude-haiku-4-5-20251001';
-
-export async function chat(conversationId, userMessage, mode = 'standard', qaMode = false) {
+export async function chat(conversationId, userMessage, mode = 'standard', onStatus = null) {
   const usePg = isConversationsReady();
 
   // Get conversation history
@@ -50,9 +47,6 @@ export async function chat(conversationId, userMessage, mode = 'standard', qaMod
     ).all(conversationId);
     previousMessages = history.map(h => ({ role: h.role, content: h.content }));
   }
-
-  // Cost safety: cap history to the most recent turns (UI caps at 8 user messages)
-  previousMessages = previousMessages.slice(-16);
 
   // Build system prompt based on mode
   let systemPrompt;
@@ -96,29 +90,14 @@ export async function chat(conversationId, userMessage, mode = 'standard', qaMod
     }
   }
 
-  // Q&A mode: skip tool definitions entirely (cheaper, no Monday.com/code lookups).
-  // Default path keeps full tool-use behavior unchanged.
-  let assistantMessage;
-  if (qaMode) {
-    const resp = await anthropic.messages.create({
-      model: SONNET_MODEL,
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages: [...previousMessages, { role: 'user', content: userMessage }],
-    });
-    assistantMessage = resp.content
-      .filter(b => b.type === 'text')
-      .map(b => b.text)
-      .join('\n') || "I don't have that in my knowledge base yet.";
-  } else {
-    // Use chatWithTools for Monday.com + Command Center code lookup + rules management
-    assistantMessage = await chatWithTools(
-      conversationId,
-      userMessage,
-      systemPrompt,
-      previousMessages
-    );
-  }
+  // Use chatWithTools for Monday.com + Command Center code lookup + rules management
+  const assistantMessage = await chatWithTools(
+    conversationId,
+    userMessage,
+    systemPrompt,
+    previousMessages,
+    onStatus
+  );
 
   // Save both messages
   if (usePg) {
@@ -133,7 +112,7 @@ export async function chat(conversationId, userMessage, mode = 'standard', qaMod
   }
 
   if (previousMessages.length === 0) {
-    autoTitle(conversationId, userMessage).catch(() => {});
+    await autoTitle(conversationId, userMessage);
   }
 
   // Detect if user is setting a rule (async, non-blocking)
@@ -145,7 +124,7 @@ export async function chat(conversationId, userMessage, mode = 'standard', qaMod
 async function autoTitle(conversationId, firstMessage) {
   try {
     const resp = await anthropic.messages.create({
-      model: HAIKU_MODEL,
+      model: 'claude-sonnet-4-6',
       max_tokens: 30,
       system: 'Generate a 3-6 word title for this chat. Return ONLY the title, no quotes, no punctuation at the end.',
       messages: [{ role: 'user', content: firstMessage }]
@@ -171,7 +150,7 @@ async function detectAndCreateRule(userMessage) {
 
   try {
     const detection = await anthropic.messages.create({
-      model: HAIKU_MODEL,
+      model: 'claude-sonnet-4-6',
       max_tokens: 300,
       system: `The user is explicitly asking Elena to remember something. Extract the rule or fact they want remembered and return it as a clean, permanent business rule.
 
