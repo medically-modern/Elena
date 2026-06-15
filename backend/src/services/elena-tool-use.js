@@ -543,9 +543,22 @@ export async function chatWithTools(conversationId, userMessage, systemPrompt, h
     return textBlocks.map(block => block.text).join('\n') || '[No response generated]';
   }
 
-  // Safety: max rounds exceeded
-  console.error(`[elena-tool-use] [${conversationId}] Exceeded max tool rounds (${MAX_TOOL_ROUNDS})`);
-  throw new Error('Tool-use loop exceeded maximum rounds. The request may be too complex.');
+  // Safety: max rounds exceeded — force a final answer instead of erroring
+  console.warn(`[elena-tool-use] [${conversationId}] Exceeded max tool rounds (${MAX_TOOL_ROUNDS}), forcing final response`);
+
+  // One last call with no tools so the model must produce text
+  try {
+    const finalResponse = await anthropic.messages.create({
+      model: SONNET_MODEL,
+      max_tokens: 4096,
+      system: systemPrompt + '\n\nIMPORTANT: You have used all available tool calls. Respond now with the best answer you can based on what you have gathered so far. Do NOT request any more tools.',
+      messages,
+    });
+    const textBlocks = finalResponse.content.filter(block => block.type === 'text');
+    return textBlocks.map(block => block.text).join('\n') || 'I gathered a lot of information but ran out of processing steps. Could you try asking a more specific question?';
+  } catch {
+    return 'I ran into a limit while researching your question. Could you try asking something more specific?';
+  }
 }
 
 // ─── Integration Example ────────────────────────────────────────────────────────
