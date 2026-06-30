@@ -77,6 +77,12 @@ export default function App() {
     loadConversations();
   };
 
+  // Append arbitrary message objects (e.g. a structured MN evaluation) to the
+  // current view without going through the chat persistence path.
+  const handleLocalMessages = (newMsgs) => {
+    setMessages(prev => [...prev, ...newMsgs]);
+  };
+
   const handleMessageSent = (convoId, userMsg, assistantMsg, title) => {
     setMessages(prev => [
       ...prev,
@@ -108,6 +114,7 @@ export default function App() {
           conversationId={activeConvo}
           messages={messages}
           onMessageSent={handleMessageSent}
+          onLocalMessages={handleLocalMessages}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
         />
       </main>

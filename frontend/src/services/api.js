@@ -27,4 +27,6 @@ export const api = {
   renameConversation: (id, title) =>
     request(`/conversations/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
   getStats: () => request("/admin/stats"),
+  evaluateMN: (pdfBase64, filename, opts = {}) =>
+    request("/evaluate/mn", { method: "POST", body: JSON.stringify({ pdfBase64, filename, ...opts }) }),
 };

@@ -14,6 +14,7 @@ import conversationRoutes from './routes/conversations.js';
 import adminRoutes from './routes/admin.js';
 import ingestRoutes from './routes/ingest.js';
 import rulesRoutes from './routes/rules.js';
+import evaluateRoutes from './routes/evaluate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -43,6 +44,7 @@ app.use('/api/conversations', authMiddleware, conversationRoutes);
 app.use('/api/admin', authMiddleware, adminRoutes);
 app.use('/api/ingest', authMiddleware, ingestRoutes);
 app.use('/api/rules', authMiddleware, rulesRoutes);
+app.use('/api/evaluate', authMiddleware, evaluateRoutes);
 
 // Serve frontend
 app.use(express.static(path.join(__dirname, '../public')));

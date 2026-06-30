@@ -1,7 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Menu } from 'lucide-react';
+import { Send, Menu, Paperclip } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { api } from '../services/api';
+import MNEvaluationTable from './MNEvaluationTable';
+
+// Read a File into base64 (no data: prefix) for the evaluate-mn endpoint.
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 const SUGGESTIONS = [
   "How does the prior authorization process work?",
@@ -21,12 +32,14 @@ function ElenaLogo({ size = 32, className = '' }) {
   );
 }
 
-export default function ChatView({ conversationId, messages, onMessageSent, onToggleSidebar }) {
+export default function ChatView({ conversationId, messages, onMessageSent, onLocalMessages, onToggleSidebar }) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [evaluating, setEvaluating] = useState(false);
   const [qaMode, setQaMode] = useState(false);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -63,11 +76,37 @@ export default function ChatView({ conversationId, messages, onMessageSent, onTo
     }
   };
 
+  const handlePdf = async (file) => {
+    if (!file) return;
+    if (file.type !== 'application/pdf') {
+      onLocalMessages?.([{ role: 'assistant', content: 'Please attach a PDF — that\'s what I can read for a Medical Necessity review.' }]);
+      return;
+    }
+    setEvaluating(true);
+    onLocalMessages?.([{ role: 'user', content: `📎 ${file.name} — Evaluate Medical Necessity` }]);
+    try {
+      const base64 = await fileToBase64(file);
+      const data = await api.evaluateMN(base64, file.name);
+      onLocalMessages?.([{ role: 'assistant', type: 'mn-evaluation', data }]);
+    } catch (err) {
+      console.error('MN eval error:', err);
+      onLocalMessages?.([{ role: 'assistant', content: `Sorry — I couldn't evaluate that PDF. ${err.message || ''}`.trim() }]);
+    } finally {
+      setEvaluating(false);
+    }
+  };
+
+  const onPickFile = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file
+    handlePdf(file);
+  };
+
   const MAX_USER_MESSAGES = 8;
   const userMessageCount = messages.filter((m) => m.role === 'user').length;
   const capReached = userMessageCount >= MAX_USER_MESSAGES;
 
-  const isEmpty = messages.length === 0 && !loading;
+  const isEmpty = messages.length === 0 && !loading && !evaluating;
 
   return (
     <div className="flex flex-col h-full">
@@ -110,15 +149,19 @@ export default function ChatView({ conversationId, messages, onMessageSent, onTo
                     <ElenaLogo size={20} />
                   </div>
                 )}
-                <div className={`max-w-[80%] ${
+                <div className={`${msg.type === 'mn-evaluation' ? 'w-full' : 'max-w-[80%]'} ${
                   msg.role === 'user'
                     ? 'bg-elena-user rounded-2xl rounded-br-md px-4 py-2.5 text-white'
                     : 'text-elena-text'
                 }`}>
                   {msg.role === 'assistant' ? (
-                    <div className="message-content">
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
-                    </div>
+                    msg.type === 'mn-evaluation' ? (
+                      <MNEvaluationTable data={msg.data} />
+                    ) : (
+                      <div className="message-content">
+                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      </div>
+                    )
                   ) : (
                     <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
                   )}
@@ -126,16 +169,23 @@ export default function ChatView({ conversationId, messages, onMessageSent, onTo
               </div>
             ))}
 
-            {loading && (
+            {(loading || evaluating) && (
               <div className="flex gap-3">
                 <div className="w-8 h-8 rounded-full bg-elena-accent/20 flex items-center justify-center flex-shrink-0">
                   <ElenaLogo size={20} />
                 </div>
-                <div className="flex items-center gap-1 py-3">
-                  <div className="typing-dot w-2 h-2 rounded-full bg-elena-muted" />
-                  <div className="typing-dot w-2 h-2 rounded-full bg-elena-muted" />
-                  <div className="typing-dot w-2 h-2 rounded-full bg-elena-muted" />
-                </div>
+                {evaluating ? (
+                  <div className="flex items-center gap-2 py-3 text-sm text-elena-muted">
+                    <div className="typing-dot w-2 h-2 rounded-full bg-elena-muted" />
+                    Reading the document and checking it against the Medical Necessity SOP…
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 py-3">
+                    <div className="typing-dot w-2 h-2 rounded-full bg-elena-muted" />
+                    <div className="typing-dot w-2 h-2 rounded-full bg-elena-muted" />
+                    <div className="typing-dot w-2 h-2 rounded-full bg-elena-muted" />
+                  </div>
+                )}
               </div>
             )}
             <div ref={messagesEndRef} />
@@ -160,6 +210,16 @@ export default function ChatView({ conversationId, messages, onMessageSent, onTo
             <span className="text-xs text-elena-muted">{userMessageCount}/{MAX_USER_MESSAGES}</span>
           </div>
           <div className={`flex items-end gap-2 bg-elena-surface border rounded-2xl px-4 py-2 transition-colors ${capReached ? 'border-elena-border opacity-60' : 'border-elena-border focus-within:border-elena-accent/50'}`}>
+            <input ref={fileInputRef} type="file" accept="application/pdf" className="hidden" onChange={onPickFile} />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={evaluating || loading}
+              title="Attach a PDF for a Medical Necessity review"
+              className="p-2 rounded-xl text-elena-muted hover:text-elena-text hover:bg-elena-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Paperclip size={16} />
+            </button>
             <textarea
               ref={textareaRef}
               value={input}
