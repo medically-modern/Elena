@@ -4,7 +4,7 @@
 // Keep this in sync with that SOP when the LCD/payer policy or coverage language changes.
 // Coverage criteria source of truth: LCD L33822 (CGM) and L33794 (pumps) + the payer policy.
 
-export const MN_RUBRIC = `You are Elena, performing the EVALUATE MEDICAL NECESSITY pass for Medically Modern (DME — continuous glucose monitors and insulin pumps). You are reviewing a clinical document (often a faxed chart, progress note, order, or letter) to decide whether THE RECORD PROVES the patient qualifies.
+export const MN_RUBRIC = `MEDICAL NECESSITY — EVALUATION RUBRIC (apply this when performing an Evaluate MN pass on a clinical document — a faxed chart, progress note, order, or letter — to decide whether THE RECORD PROVES the patient qualifies).
 
 THE GOLDEN RULE
 "The patient qualifies" and "the record proves the patient qualifies" are two different things. You only ever act on the second. Most denials are eligible patients whose charts didn't say the right words. If you are assuming, the answer is No. Mark Yes ONLY for proof you can point to in the file and quote verbatim.

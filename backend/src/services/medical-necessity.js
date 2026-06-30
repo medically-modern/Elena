@@ -1,57 +1,63 @@
-// medical-necessity.js — runs the Evaluate MN pass on an uploaded document.
+// medical-necessity.js — lets Elena read one or more uploaded PDFs and do
+// whatever the user asks with them.
 //
-// Sends the PDF to Claude as a native document block (Claude reads PDFs directly,
-// including scanned faxes — page images, signatures, stamps) and forces a
-// structured evaluation via the submit_mn_evaluation tool. The grading rubric
-// comes from config/mn-rubric.js (mirrors the team's Medical Necessity SOP).
+// Sends the PDFs to Claude as native document blocks (Claude reads PDFs directly,
+// including scanned faxes — page images, signatures, stamps). The MN rubric +
+// submit_mn_evaluation tool are made available but NOT forced: Elena only returns
+// the structured Medical Necessity table when the user actually asks for an MN
+// review. For any other request (summarize, extract, answer a question), she
+// replies in plain markdown. This keeps the door open for other PDF tasks later.
 
 import Anthropic from '@anthropic-ai/sdk';
 import { MN_RUBRIC, MN_TOOL } from '../config/mn-rubric.js';
 
 const anthropic = new Anthropic();
-// Use a strong model — this is reasoning-heavy clinical judgment, not a cheap call.
+// Strong model — clinical judgment, not a cheap call.
 const MN_MODEL = process.env.MN_MODEL || process.env.SONNET_MODEL || 'claude-sonnet-4-6';
 
+const DOC_REVIEW_SYSTEM = `You are Elena, Medically Modern's assistant. The user has attached one or more documents (PDFs — often clinical charts, orders, letters, or faxes). Read them carefully and do exactly what the user asks.
+
+If the user asks you to evaluate Medical Necessity — or the request is clearly an MN / clinical-eligibility review of a chart, clinicals, order, or MN letter — call the submit_mn_evaluation tool and apply the rubric below. For ANY other request (summarize, extract fields, answer a question, compare documents), answer directly in clean markdown and do NOT call the tool.
+
+Always quote documents verbatim when you cite them.
+
+${MN_RUBRIC}`;
+
 /**
- * Evaluate a clinical PDF for Medical Necessity.
- * @param {string} pdfBase64 - base64-encoded PDF bytes (no data: prefix)
- * @param {{filename?: string, coveragePath?: string, product?: string}} [opts]
- * @returns {Promise<object>} structured evaluation (rows, clinicals, verdict, gap_note)
+ * Review one or more PDFs against the user's instruction.
+ * @param {Array<{filename?: string, base64: string}>} pdfs
+ * @param {string} [message] - the user's instruction (what to do with the docs)
+ * @returns {Promise<{type:'mn-evaluation'|'text', ...}>}
  */
-export async function evaluateDocument(pdfBase64, opts = {}) {
-  const { coveragePath = null, product = null } = opts;
-  const hint = [
-    product ? `Product hint: ${product}.` : '',
-    coveragePath ? `Coverage path hint: ${coveragePath}.` : '',
-  ].filter(Boolean).join(' ');
+export async function reviewDocuments(pdfs, message) {
+  if (!Array.isArray(pdfs) || pdfs.length === 0) throw new Error('No documents provided');
+  const instruction = (message && String(message).trim()) ||
+    'Review the attached document(s) and tell me what you find.';
+
+  const content = pdfs.map(p => ({
+    type: 'document',
+    source: { type: 'base64', media_type: 'application/pdf', data: p.base64 },
+  }));
+  content.push({ type: 'text', text: instruction });
 
   const response = await anthropic.messages.create({
     model: MN_MODEL,
     max_tokens: 8192,
-    system: MN_RUBRIC,
+    system: DOC_REVIEW_SYSTEM,
     tools: [MN_TOOL],
-    tool_choice: { type: 'tool', name: 'submit_mn_evaluation' },
-    messages: [{
-      role: 'user',
-      content: [
-        {
-          type: 'document',
-          source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 },
-        },
-        {
-          type: 'text',
-          text:
-            `Evaluate this document for Medical Necessity per the SOP.${hint ? ' ' + hint : ''}\n\n` +
-            'For every row: quote the EXACT text from the document in "evidence" (verbatim), make the Yes/No/Invalid decision, and cite the specific SOP rule in "rule". Apply the Golden Rule — only mark Yes for proof you can point to in the file.',
-        },
-      ],
-    }],
+    tool_choice: { type: 'auto' },
+    messages: [{ role: 'user', content }],
   });
 
-  const toolUse = response.content.find(b => b.type === 'tool_use');
-  if (!toolUse) {
-    const text = response.content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
-    throw new Error('Model did not return a structured evaluation' + (text ? `: ${text.slice(0, 300)}` : '.'));
+  const toolUse = response.content.find(b => b.type === 'tool_use' && b.name === 'submit_mn_evaluation');
+  if (toolUse) {
+    return {
+      type: 'mn-evaluation',
+      filename: pdfs.map(p => p.filename).filter(Boolean).join(', ') || null,
+      ...toolUse.input,
+    };
   }
-  return toolUse.input;
+
+  const text = response.content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+  return { type: 'text', text: text || '(no response generated)' };
 }

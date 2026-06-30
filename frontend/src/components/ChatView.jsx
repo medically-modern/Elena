@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Menu, Paperclip } from 'lucide-react';
+import { Send, Menu, Paperclip, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { api } from '../services/api';
 import MNEvaluationTable from './MNEvaluationTable';
 
-// Read a File into base64 (no data: prefix) for the evaluate-mn endpoint.
+// Read a File into base64 (no data: prefix) for the document-review endpoint.
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -37,6 +37,7 @@ export default function ChatView({ conversationId, messages, onMessageSent, onLo
   const [loading, setLoading] = useState(false);
   const [evaluating, setEvaluating] = useState(false);
   const [qaMode, setQaMode] = useState(false);
+  const [attachments, setAttachments] = useState([]); // staged PDFs: {id, filename, base64}
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -53,11 +54,41 @@ export default function ChatView({ conversationId, messages, onMessageSent, onLo
   }, [input]);
 
   const sendMessage = async (text) => {
-    const msg = text || input.trim();
-    if (!msg || loading || capReached) return;
-    setInput('');
-    setLoading(true);
+    const msg = (text ?? input).trim();
+    const files = attachments;
+    if (loading || evaluating) return;
+    if (!msg && files.length === 0) return;
+    if (capReached && files.length === 0) return; // cap applies to plain chat only
 
+    setInput('');
+
+    // Document path: send the staged PDFs + the user's instruction.
+    if (files.length > 0) {
+      setAttachments([]);
+      setEvaluating(true);
+      const label = [msg, ...files.map(f => `📎 ${f.filename}`)].filter(Boolean).join('\n');
+      onLocalMessages?.([{ role: 'user', content: label }]);
+      try {
+        const data = await api.reviewDocuments(
+          files.map(f => ({ filename: f.filename, base64: f.base64 })),
+          msg
+        );
+        if (data.type === 'mn-evaluation') {
+          onLocalMessages?.([{ role: 'assistant', type: 'mn-evaluation', data }]);
+        } else {
+          onLocalMessages?.([{ role: 'assistant', content: data.text || '(no response)' }]);
+        }
+      } catch (err) {
+        console.error('Doc review error:', err);
+        onLocalMessages?.([{ role: 'assistant', content: `Sorry — I couldn't read that document. ${err.message || ''}`.trim() }]);
+      } finally {
+        setEvaluating(false);
+      }
+      return;
+    }
+
+    // Normal chat path.
+    setLoading(true);
     try {
       const data = await api.sendMessage(msg, conversationId, qaMode);
       onMessageSent(data.conversationId, msg, data.message, data.title);
@@ -76,35 +107,30 @@ export default function ChatView({ conversationId, messages, onMessageSent, onLo
     }
   };
 
-  const handlePdf = async (file) => {
-    if (!file) return;
-    if (file.type !== 'application/pdf') {
-      onLocalMessages?.([{ role: 'assistant', content: 'Please attach a PDF — that\'s what I can read for a Medical Necessity review.' }]);
-      return;
-    }
-    setEvaluating(true);
-    onLocalMessages?.([{ role: 'user', content: `📎 ${file.name} — Evaluate Medical Necessity` }]);
-    try {
-      const base64 = await fileToBase64(file);
-      const data = await api.evaluateMN(base64, file.name);
-      onLocalMessages?.([{ role: 'assistant', type: 'mn-evaluation', data }]);
-    } catch (err) {
-      console.error('MN eval error:', err);
-      onLocalMessages?.([{ role: 'assistant', content: `Sorry — I couldn't evaluate that PDF. ${err.message || ''}`.trim() }]);
-    } finally {
-      setEvaluating(false);
-    }
+  // Stage selected PDFs (no auto-send) — the user adds an instruction, then sends.
+  const onPickFile = async (e) => {
+    const picked = Array.from(e.target.files || []);
+    e.target.value = ''; // allow re-selecting the same file
+    const pdfs = picked.filter(f => f.type === 'application/pdf');
+    if (pdfs.length === 0) return;
+    const staged = await Promise.all(pdfs.map(async (f) => ({
+      id: `${f.name}-${f.size}-${Math.random().toString(36).slice(2, 8)}`,
+      filename: f.name,
+      base64: await fileToBase64(f),
+    })));
+    setAttachments(prev => [...prev, ...staged]);
   };
 
-  const onPickFile = (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = ''; // allow re-selecting the same file
-    handlePdf(file);
-  };
+  const removeAttachment = (id) => setAttachments(prev => prev.filter(a => a.id !== id));
 
   const MAX_USER_MESSAGES = 8;
   const userMessageCount = messages.filter((m) => m.role === 'user').length;
   const capReached = userMessageCount >= MAX_USER_MESSAGES;
+
+  const hasFiles = attachments.length > 0;
+  const busy = loading || evaluating;
+  const blockedByCap = capReached && !hasFiles; // attachments bypass the chat cap
+  const canSend = !busy && (hasFiles || (!!input.trim() && !capReached));
 
   const isEmpty = messages.length === 0 && !loading && !evaluating;
 
@@ -177,7 +203,7 @@ export default function ChatView({ conversationId, messages, onMessageSent, onLo
                 {evaluating ? (
                   <div className="flex items-center gap-2 py-3 text-sm text-elena-muted">
                     <div className="typing-dot w-2 h-2 rounded-full bg-elena-muted" />
-                    Reading the document and checking it against the Medical Necessity SOP…
+                    Reading your document(s)…
                   </div>
                 ) : (
                   <div className="flex items-center gap-1 py-3">
@@ -209,13 +235,32 @@ export default function ChatView({ conversationId, messages, onMessageSent, onLo
             </label>
             <span className="text-xs text-elena-muted">{userMessageCount}/{MAX_USER_MESSAGES}</span>
           </div>
-          <div className={`flex items-end gap-2 bg-elena-surface border rounded-2xl px-4 py-2 transition-colors ${capReached ? 'border-elena-border opacity-60' : 'border-elena-border focus-within:border-elena-accent/50'}`}>
-            <input ref={fileInputRef} type="file" accept="application/pdf" className="hidden" onChange={onPickFile} />
+          {/* Staged attachments — added but not sent until you write an instruction */}
+          {hasFiles && (
+            <div className="flex flex-wrap gap-2 mb-2 px-1">
+              {attachments.map((a) => (
+                <span key={a.id} className="inline-flex items-center gap-1.5 max-w-[240px] pl-2 pr-1 py-1 rounded-lg bg-elena-surface border border-elena-border text-xs text-elena-text">
+                  <Paperclip size={12} className="text-elena-muted shrink-0" />
+                  <span className="truncate">{a.filename}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(a.id)}
+                    className="p-0.5 rounded hover:bg-elena-hover text-elena-muted hover:text-elena-text"
+                    title="Remove"
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className={`flex items-end gap-2 bg-elena-surface border rounded-2xl px-4 py-2 transition-colors ${blockedByCap ? 'border-elena-border opacity-60' : 'border-elena-border focus-within:border-elena-accent/50'}`}>
+            <input ref={fileInputRef} type="file" accept="application/pdf" multiple className="hidden" onChange={onPickFile} />
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              disabled={evaluating || loading}
-              title="Attach a PDF for a Medical Necessity review"
+              disabled={busy}
+              title="Attach PDF(s)"
               className="p-2 rounded-xl text-elena-muted hover:text-elena-text hover:bg-elena-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Paperclip size={16} />
@@ -225,16 +270,22 @@ export default function ChatView({ conversationId, messages, onMessageSent, onLo
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={capReached ? 'Maximum responses reached — start a new chat' : 'Ask Elena anything...'}
+              placeholder={
+                blockedByCap
+                  ? 'Maximum responses reached — start a new chat'
+                  : hasFiles
+                    ? "Add an instruction (e.g. 'Evaluate medical necessity')…"
+                    : 'Ask Elena anything...'
+              }
               rows={1}
               className="flex-1 bg-transparent text-elena-text placeholder-elena-muted outline-none text-sm py-1.5 max-h-[200px] disabled:cursor-not-allowed"
-              disabled={loading || capReached}
+              disabled={busy || blockedByCap}
             />
             <button
               onClick={() => sendMessage()}
-              disabled={!input.trim() || loading || capReached}
+              disabled={!canSend}
               className={`p-2 rounded-xl transition-colors ${
-                input.trim() && !loading && !capReached
+                canSend
                   ? 'bg-elena-accent hover:bg-elena-accentHover text-white'
                   : 'text-elena-muted cursor-not-allowed'
               }`}
@@ -242,7 +293,7 @@ export default function ChatView({ conversationId, messages, onMessageSent, onLo
               <Send size={16} />
             </button>
           </div>
-          {capReached ? (
+          {blockedByCap ? (
             <p className="text-xs text-amber-400 text-center mt-2">Maximum responses per chat is capped at 8. Start a new chat to continue.</p>
           ) : (
             <p className="text-xs text-elena-muted text-center mt-2">Elena can make mistakes. Verify important info with your team.</p>
