@@ -2,8 +2,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { ELENA_SYSTEM_PROMPT } from '../config/personality.js';
 import { CEO_SYSTEM_PROMPT } from '../config/ceo-personality.js';
 import { KNOWLEDGE_BASE } from '../config/knowledge-base.js';
-import { embed } from './embeddings.js';
-import { search, keywordSearch, isReady as ragReady } from './vectorStore.js';
+import { isReady as ragReady } from './vectorStore.js';
+import { retrieveContext } from './retrieval.js';
 import { chatWithTools } from './elena-tool-use.js';
 import {
   isConversationsReady,
@@ -61,27 +61,14 @@ export async function chat(conversationId, userMessage, mode = 'standard', onSta
   const rulesBlock = await buildRulesBlock();
   if (rulesBlock) systemPrompt += rulesBlock;
 
-  // RAG: retrieve relevant context from vector store
+  // RAG: retrieve relevant context (query rewrite → wide retrieve → relevance floor → rerank)
   if (ragReady()) {
     try {
-      const queryEmbedding = await embed(userMessage);
-      const semanticResults = await search(queryEmbedding, 6);
-      const kwResults = await keywordSearch(userMessage, 4);
-
-      const seen = new Set();
-      const allResults = [];
-      for (const r of [...semanticResults, ...kwResults]) {
-        if (!seen.has(r.id)) {
-          seen.add(r.id);
-          allResults.push(r);
-        }
-      }
-
-      if (allResults.length > 0) {
-        const top = allResults.slice(0, 8);
+      const { chunks } = await retrieveContext(userMessage, previousMessages);
+      if (chunks.length > 0) {
         systemPrompt += '\n\n## RETRIEVED CONTEXT (from ingested knowledge)\n';
         systemPrompt += 'The following information was retrieved as relevant. Use it to give a more complete answer:\n\n';
-        for (const r of top) {
+        for (const r of chunks) {
           systemPrompt += `### [${r.source}]\n${r.content}\n\n`;
         }
       }
