@@ -11,6 +11,9 @@ export default function App() {
   const [activeConvo, setActiveConvo] = useState(null);
   const [messages, setMessages] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 768);
+  // When we create a conversation from a send, skip the one refetch that would
+  // otherwise wipe locally-shown messages (e.g. an unsaved document review).
+  const skipFetchRef = useRef(false);
 
   // Check for existing token on mount
   useEffect(() => {
@@ -57,6 +60,7 @@ export default function App() {
   // Load messages when conversation changes
   useEffect(() => {
     if (!activeConvo) { setMessages([]); return; }
+    if (skipFetchRef.current) { skipFetchRef.current = false; return; }
     api.getMessages(activeConvo).then(setMessages).catch(console.error);
   }, [activeConvo]);
 
@@ -89,7 +93,7 @@ export default function App() {
       { role: 'user', content: userMsg, created_at: new Date().toISOString() },
       { role: 'assistant', content: assistantMsg, created_at: new Date().toISOString() }
     ]);
-    if (!activeConvo) setActiveConvo(convoId);
+    if (!activeConvo) { skipFetchRef.current = true; setActiveConvo(convoId); }
     loadConversations();
   };
 

@@ -47,7 +47,7 @@ export default function MNEvaluationTable({ data }) {
 
       {/* The three-column table: what Elena pulled · decision · rule referenced */}
       <div className="overflow-x-auto rounded-xl border border-elena-border">
-        <table className="w-full text-sm border-collapse">
+        <table className="w-full min-w-[680px] text-sm border-collapse">
           <thead>
             <tr className="bg-elena-surface text-left text-xs text-elena-muted">
               <th className="px-3 py-2 font-medium">Requirement</th>
@@ -59,7 +59,7 @@ export default function MNEvaluationTable({ data }) {
           <tbody>
             {rows.map((r, i) => (
               <tr key={i} className="border-t border-elena-border align-top">
-                <td className="px-3 py-2 text-elena-text font-medium whitespace-nowrap">{r.requirement}</td>
+                <td className="px-3 py-2 text-elena-text font-medium min-w-[130px]">{r.requirement}</td>
                 <td className="px-3 py-2 text-elena-text italic">
                   {r.evidence
                     ? <span className="text-elena-text">“{r.evidence}”</span>

@@ -175,7 +175,7 @@ export default function ChatView({ conversationId, messages, onMessageSent, onLo
                     <ElenaLogo size={20} />
                   </div>
                 )}
-                <div className={`${msg.type === 'mn-evaluation' ? 'w-full' : 'max-w-[80%]'} ${
+                <div className={`${msg.type === 'mn-evaluation' ? 'flex-1 min-w-0' : 'max-w-[80%]'} ${
                   msg.role === 'user'
                     ? 'bg-elena-user rounded-2xl rounded-br-md px-4 py-2.5 text-white'
                     : 'text-elena-text'
