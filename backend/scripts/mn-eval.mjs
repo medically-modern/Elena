@@ -14,9 +14,17 @@
  *   node scripts/mn-eval.mjs --substage "Evaluate MN" --limit 3
  *   node scripts/mn-eval.mjs --substage "Chase Clinicals" --limit 5 --json out.json
  *
+ * Two ways to reach Elena:
+ *   --api            drive the DEPLOYED Elena over her own HTTP API (preferred:
+ *                    she already holds the model key, so you only need the
+ *                    portal key). Defaults to the production backend.
+ *   --local          import reviewDocuments() in-process (needs ANTHROPIC_API_KEY).
+ *
  * Env:
- *   ANTHROPIC_API_KEY — required (this actually calls the model)
- *   MONDAY_API_TOKEN  — required
+ *   MONDAY_API_TOKEN  — always required
+ *   ELENA_PORTAL_KEY  — required in --api mode (the x-portal-key auth bypass)
+ *   ELENA_API_URL     — override the API base (default: production)
+ *   ANTHROPIC_API_KEY — required only in --local mode
  *
  * Note: this downloads real PHI into a temp directory and deletes it on exit.
  * Do not point --json at anything that gets committed.
@@ -25,7 +33,27 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { reviewDocuments } from '../src/services/medical-necessity.js';
+
+const DEFAULT_API = process.env.ELENA_API_URL || 'https://elena-backend-production.up.railway.app/api';
+
+/** Ask the deployed Elena to review the documents, through her own endpoint. */
+async function reviewViaApi(pdfs, message, apiBase) {
+  const key = process.env.ELENA_PORTAL_KEY;
+  if (!key) throw new Error('ELENA_PORTAL_KEY is not set (needed to authenticate against the deployed Elena)');
+  const resp = await fetch(`${apiBase}/evaluate/document`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-portal-key': key },
+    body: JSON.stringify({ pdfs, message }),
+  });
+  if (!resp.ok) throw new Error(`Elena API ${resp.status}: ${(await resp.text()).slice(0, 300)}`);
+  return resp.json();
+}
+
+/** Lazily import the in-process path so --api mode needs no Anthropic key. */
+async function reviewLocally(pdfs, message) {
+  const { reviewDocuments } = await import('../src/services/medical-necessity.js');
+  return reviewDocuments(pdfs, message);
+}
 
 const MN_BOARD = 18406060017;
 const MN_GROUP = 'group_mm1xf2jb';
@@ -143,11 +171,13 @@ export function score(evaluation, truth) {
 }
 
 function parseArgs(argv) {
-  const opts = { names: [], subStage: null, limit: null, json: null };
+  const opts = { names: [], subStage: null, limit: null, json: null, local: false, api: DEFAULT_API };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--substage') opts.subStage = argv[++i];
     else if (argv[i] === '--limit') opts.limit = Number(argv[++i]);
     else if (argv[i] === '--json') opts.json = argv[++i];
+    else if (argv[i] === '--local') opts.local = true;
+    else if (argv[i] === '--api') { if (argv[i + 1] && !argv[i + 1].startsWith('--')) opts.api = argv[++i]; }
     else opts.names.push(argv[i]);
   }
   return opts;
@@ -155,10 +185,15 @@ function parseArgs(argv) {
 
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.error('ANTHROPIC_API_KEY is not set — this script calls the model for real.');
+  if (opts.local && !process.env.ANTHROPIC_API_KEY) {
+    console.error('--local needs ANTHROPIC_API_KEY. Drop --local to drive the deployed Elena with ELENA_PORTAL_KEY instead.');
     process.exit(1);
   }
+  if (!opts.local && !process.env.ELENA_PORTAL_KEY) {
+    console.error('ELENA_PORTAL_KEY is not set — needed to authenticate against the deployed Elena. (Or pass --local with ANTHROPIC_API_KEY.)');
+    process.exit(1);
+  }
+  console.log(opts.local ? 'Mode: in-process reviewDocuments()' : `Mode: deployed Elena at ${opts.api}`);
 
   console.log('Loading Medical Necessity cases from Monday...');
   const all = await loadCases();
@@ -201,10 +236,10 @@ async function main() {
 
       if (!pdfs.length) { console.log('    skipped: no readable PDFs\n'); continue; }
 
-      const evaluation = await reviewDocuments(
-        pdfs,
-        'Run a full Medical Necessity evaluation on these documents and submit the structured result.'
-      );
+      const instruction = 'Run a full Medical Necessity evaluation on these documents and submit the structured result.';
+      const evaluation = opts.local
+        ? await reviewLocally(pdfs, instruction)
+        : await reviewViaApi(pdfs, instruction, opts.api);
 
       if (evaluation.type !== 'mn-evaluation') {
         console.log(`    ✗ Elena answered in prose instead of calling submit_mn_evaluation:\n      ${(evaluation.text || '').slice(0, 300)}\n`);
