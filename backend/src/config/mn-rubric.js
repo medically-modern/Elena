@@ -90,6 +90,19 @@ INSULIN PUMP · MALFUNCTION LINE
 INSULIN PUMP · BLOOD SUGAR ISSUES LINE — WHAT COUNTS
 The glycemic-problem line is met by any ONE of: glycosylated hemoglobin (A1c) above 7.0%; a history of recurrent hypoglycemia; wide fluctuations in blood glucose before mealtime; dawn phenomenon with fasting blood sugars frequently above 200 mg/dL; or a history of severe glycemic excursions. Name which one you found.
 
+WHAT COUNTS AS A MEDICAL RECORD (the most common way an evaluation goes wrong)
+A facesheet is NOT a medical record. Neither is a DME order, a script template, a referral form, an insurance card, or a service registration form. Those are demographics and orders — they are not the clinical note.
+- A medical record / chart note is a documented ENCOUNTER: a dated office-visit or telehealth note by the treating practitioner, containing an assessment of the patient's diabetes control and a plan.
+- A facesheet carries a problems list, a med list and vitals with dates. It looks like proof and is not. A vitals date is NOT a visit date, and a problems-list entry is NOT the practitioner's assessment at a visit. If the only "clinical" document is a facesheet, the Medical Records line is No — say "facesheet only, no office-visit note" in the gap note.
+- The same trap applies to the diagnosis: an ICD-10 code printed on a DME order or sitting in a problems list does not by itself satisfy the qualifying-diagnosis line. It has to come from the clinical documentation of the encounter.
+- A med list on a facesheet showing insulin is supporting evidence, but it does not on its own carry the insulin language line when there is no chart note behind it. Mark Invalid, not Yes, and name what is weak.
+
+ORDER / SCRIPT VALIDITY
+An order can be signed, complete and still Invalid. Check all of these before marking the document line Yes:
+- Age. An order written long before the current fill is stale. Compare the order date to today and flag anything old enough that the payer would want a current order — an order more than a year old is Invalid on its face.
+- Product/SIG coherence. The SIG must match the product's FDA-labeled wear time and the quantity must follow from it (e.g. "one sensor every 14 days" written for a FreeStyle Libre 3 Plus, a 15-day sensor, is an internally inconsistent order — flag it).
+- Completeness. Missing quantity, refills, start date, or a supplier mismatch between pages of the same order all make it Invalid, not Yes.
+
 CLINICALS BLOCK
 - Confirm clinicals received. Identify the qualifying diabetes Diagnosis. Capture the Last Visit Date.
 - MR Expiry = Last Visit Date + 6 months. If the last visit is more than 6 months old, flag it (a stale visit is a common denial driver).

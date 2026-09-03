@@ -213,7 +213,7 @@ const TOOLS = [
   {
     name: 'count_patients',
     description:
-      'Count patients across pipeline stages — the ONLY correct way to answer "how many". It pages through every item, so the numbers are real totals, not page sizes. Use `where` to filter (e.g. every patient whose referralSource is "SNJ") and/or `group_by` to get a breakdown (e.g. how the pipeline splits across referral sources). Prefer this over list_patients_in_stage whenever the question is about a count, a share, or a comparison. If you do not know what value to filter on, call explain_field first to see the valid values for that field — never guess at what an abbreviation means.',
+      'Count patients across pipeline stages — the ONLY correct way to answer "how many". It pages through every item, so the numbers are real totals, not page sizes. Use `where` to filter (e.g. every patient whose referralSource is "SNJ") and/or `group_by` to get a breakdown (e.g. how the pipeline splits across referral sources). Prefer this over list_patients_in_stage whenever the question is about a count, a share, or a comparison. If you do not know what value to filter on, call explain_field first to see the valid values for that field — never guess at what an abbreviation means.\n\nIMPORTANT — "Medical Necessity" is ambiguous and the two readings differ by a lot. The Medical Necessity STAGE is the whole board group (every patient anywhere in the MN workflow). The team usually means the Evaluate MN BUCKET — the ones actually awaiting a determination right now. Whenever a question is about Medical Necessity counts, group_by "mnSubStage" and report the Evaluate MN number and the stage total, saying which is which. Never give one number alone.',
     input_schema: {
       type: 'object',
       properties: {
@@ -225,8 +225,8 @@ const TOOLS = [
         },
         where_field: {
           type: 'string',
-          enum: ['referralSource', 'referralType', 'primaryInsurance', 'serving', 'doctorName'],
-          description: 'Field to filter on. Pair with where_value.',
+          enum: ['referralSource', 'referralType', 'primaryInsurance', 'serving', 'doctorName', 'mnSubStage'],
+          description: 'Field to filter on. Pair with where_value. mnSubStage exists only on the Medical Evaluation board; its values are "Evaluate MN", "Send Request", "Confirm Receipt", "Chase Clinicals" and "Doctor Appointment".',
         },
         where_value: {
           type: 'string',
@@ -234,8 +234,8 @@ const TOOLS = [
         },
         group_by: {
           type: 'string',
-          enum: ['referralSource', 'referralType', 'primaryInsurance', 'serving'],
-          description: 'Return a per-value breakdown of the counted patients.',
+          enum: ['referralSource', 'referralType', 'primaryInsurance', 'serving', 'mnSubStage'],
+          description: 'Return a per-value breakdown of the counted patients. Use "mnSubStage" for any Medical Necessity question to split the stage into Evaluate MN / Send Request / Confirm Receipt / Chase Clinicals.',
         },
       },
       required: [],

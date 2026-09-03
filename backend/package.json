@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "dev": "node --watch src/index.js",
+    "mn-eval": "node scripts/mn-eval.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

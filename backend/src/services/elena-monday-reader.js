@@ -154,6 +154,10 @@ export const SHARED_COLUMNS = {
   daysSinceStageStart: 'color_mm1wwm05',
   referralSource:    'color_mm1w5wxr',
   referralType:      'color_mm1wm4n4',
+  // Medical Evaluation board only — the sub-stage inside the Medical Necessity
+  // stage (Evaluate MN / Send Request / Confirm Receipt / Chase Clinicals).
+  // Nulled on every other board by BOARD_COLUMN_OVERRIDES.
+  mnSubStage:        'color_mm1wyr92',
 };
 
 /**
@@ -170,11 +174,14 @@ export const BOARD_COLUMN_OVERRIDES = {
     diagnosis:           null,
     daysSinceIntake:     null,
     daysSinceStageStart: null,
+    mnSubStage:          null,
   },
   // Medical Evaluation — tracks stage time only, no "days since intake".
   18406060017: {
     daysSinceIntake: null,
   },
+  18410601299: { mnSubStage: null },
+  18410804557: { mnSubStage: null },
   // Subscription board — a separate schema almost end to end.
   18407459988: {
     dob:                 'text_mkvdefh1',
@@ -187,6 +194,7 @@ export const BOARD_COLUMN_OVERRIDES = {
     diagnosis:           'color_mkxrxv9w',
     referralSource:      'color_mm6thrwv',
     referralType:        null,
+    mnSubStage:          null,
     serving:             null,
     daysSinceIntake:     null,
     daysSinceStageStart: null,
@@ -511,7 +519,7 @@ export async function getPatient(itemId, boardId) {
 /** Fields returned for each patient in a stage listing. */
 const STAGE_FIELDS = [
   'serving', 'primaryInsurance', 'daysSinceIntake', 'daysSinceStageStart',
-  'dob', 'doctorName', 'referralSource', 'referralType',
+  'dob', 'doctorName', 'referralSource', 'referralType', 'mnSubStage',
 ];
 
 /** Monday's hard per-page cap on items_page. */
