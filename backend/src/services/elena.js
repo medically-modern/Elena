@@ -32,6 +32,20 @@ try {
 
 const anthropic = new Anthropic();
 
+// Cheap side-calls only (chat titles, rule extraction). The conversation itself
+// runs on the stronger model in elena-tool-use.js.
+const HAIKU_MODEL = process.env.HAIKU_MODEL || 'claude-haiku-4-5';
+
+/** Join the text blocks of a response. Never index content[0] — with tools or
+ *  thinking enabled the first block may not be text. */
+function textOf(response) {
+  return (response.content || [])
+    .filter(b => b.type === 'text')
+    .map(b => b.text)
+    .join('')
+    .trim();
+}
+
 export async function chat(conversationId, userMessage, mode = 'standard', onStatus = null) {
   const usePg = isConversationsReady();
 
@@ -111,12 +125,12 @@ export async function chat(conversationId, userMessage, mode = 'standard', onSta
 async function autoTitle(conversationId, firstMessage) {
   try {
     const resp = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: HAIKU_MODEL,
       max_tokens: 30,
       system: 'Generate a 3-6 word title for this chat. Return ONLY the title, no quotes, no punctuation at the end.',
       messages: [{ role: 'user', content: firstMessage }]
     });
-    const title = resp.content[0].text.trim().substring(0, 100);
+    const title = textOf(resp).substring(0, 100);
     if (isConversationsReady()) {
       await updateConversationTitle(conversationId, title);
     } else {
@@ -137,7 +151,7 @@ async function detectAndCreateRule(userMessage) {
 
   try {
     const detection = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: HAIKU_MODEL,
       max_tokens: 300,
       system: `The user is explicitly asking Elena to remember something. Extract the rule or fact they want remembered and return it as a clean, permanent business rule.
 
@@ -151,7 +165,7 @@ JSON only, no explanation.`,
       messages: [{ role: 'user', content: userMessage }]
     });
 
-    let raw = detection.content[0].text.trim();
+    let raw = textOf(detection);
     if (raw.startsWith('```')) {
       raw = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
     }

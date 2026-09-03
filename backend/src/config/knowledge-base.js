@@ -3,9 +3,14 @@ export const KNOWLEDGE_BASE = `
 
 ### Company
 - DME (Durable Medical Equipment) supplier specializing in CGMs (Continuous Glucose Monitors) and insulin pump supplies
-- Products: Dexcom G6, Dexcom G7, Libre 3, Libre 3 Plus, Tandem Mobi, t:slim X2, AutoSoft XC, TruSteel, OmniPod
+- Products: Dexcom G6, Dexcom G7, Libre 3, Libre 3 Plus, Tandem Mobi, t:slim X2, AutoSoft XC, TruSteel, Omnipod
 - Insurance-based fulfillment — patients need prescriptions, prior authorizations, and insurance verification
-- Reorder cycle: typically every 90 days (insurance-mandated)
+- Resupply is driven by the **20-day reorder text system**: the patient confirms via a tokenized reorder link (product changes are made through that same link). Monthly batch eligibility re-checks run via the batch flow. Do not describe the reorder cycle as "every 90 days" — 90 days is a common *supply quantity* per fill, not the contact cadence.
+
+### Referral Sources (the "who sent us this patient" field)
+Active values on the Referral Source column: **Patient, Tandem, Beta Bionics, CareCentrix, Doctor, Wellstart, Solace Advocates, SNJ, District Endochrine.**
+- **SNJ** is a referral source — a named partner, our single largest one by volume. It is not an insurance carrier, a state, or a territory. When someone asks about SNJ patients, filter on Referral Source = "SNJ" via \`count_patients\`.
+- Referral *Type* is the category (Manufacturer, Payor, Patient, Doctor, Advocacy Group); Referral *Source* is the specific partner. They are different columns.
 
 ### Team Roster & Routing
 - **Corey Deutsch** — CEO, handles sell calls, retention, compliance, strategic decisions
@@ -65,8 +70,14 @@ Step 8: Confirm Profile — Brandon reviews final details before shipping
 Keywords: "last sensor", "running out", "hospital", "emergency", "frustrated", "can't get through", "nobody picks up", "days left", "expires"
 
 ## PRODUCT KNOWLEDGE
-- CGM sensors: replacement every 10-14 days depending on brand
-- Insurance covers 90-day supplies
+- CGM sensor wear time is per-product, not a single number. Current FDA-labeled wear times:
+  - **FreeStyle Libre 3** — up to 14 days
+  - **FreeStyle Libre 3 Plus** — up to **15 days**
+  - **Dexcom G6** — up to 10 days
+  - **Dexcom G7** — up to 10 days (plus a 12-hour grace period)
+  - **Dexcom G7 15 Day** — up to 15.5 days
+  If an order's SIG conflicts with the product's labeled wear time (e.g. "one sensor every 14 days" written for a Libre 3 Plus, which is a 15-day sensor), flag it — it affects quantity, days' supply, and the refill schedule.
+- Insurance commonly covers a 90-day supply per fill; that is the quantity, not the reorder contact cadence (see the 20-day reorder system above).
 - Prior authorizations: 5-10 business days
 - Prescriptions require doctor signature
 - Dexcom and Libre handle device warranty replacements directly (free)
