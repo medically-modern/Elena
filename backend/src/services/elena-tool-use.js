@@ -23,8 +23,11 @@ import {
   getBoardGroupPatients,
   getUiState,
   explainField,
+  countPatients,
   BOARD_IDS,
   BOARD_GROUPS,
+  BOARD_NAMES,
+  ACTIVE_PIPELINE,
 } from './elena-monday-reader.js';
 
 // ─── Rules Engine (shared pgvector) ────────────────────────────────────────────
@@ -43,7 +46,7 @@ try {
 // ─── Anthropic Client ───────────────────────────────────────────────────────────
 
 const anthropic = new Anthropic();
-const SONNET_MODEL = process.env.SONNET_MODEL || 'claude-sonnet-4-6';
+const SONNET_MODEL = process.env.SONNET_MODEL || 'claude-sonnet-5';
 
 // ─── Board / Group ID Mapping ───────────────────────────────────────────────────
 
@@ -56,14 +59,20 @@ const BOARD_ENUM_TO_ID = {
   subscription:      BOARD_IDS.subscription,
 };
 
-/** Map group name strings to { boardId, groupId } */
+/**
+ * Map group alias → every { boardId, groupId } that uses it.
+ *
+ * Aliases are NOT unique across boards ("stuck", "completed" and "escalations"
+ * each exist on several). Keeping every candidate lets an ambiguous lookup fail
+ * loudly and ask for the board, instead of silently answering about the wrong
+ * board — which is how "who's stuck?" used to return one arbitrary board.
+ * @type {Record<string, Array<{boardId: number, groupId: string}>>}
+ */
 const GROUP_NAME_TO_IDS = {};
 for (const [boardKey, groups] of Object.entries(BOARD_GROUPS)) {
   for (const [alias, groupId] of Object.entries(groups)) {
-    GROUP_NAME_TO_IDS[alias.toLowerCase()] = {
-      boardId: Number(boardKey),
-      groupId,
-    };
+    const key = alias.toLowerCase();
+    (GROUP_NAME_TO_IDS[key] ||= []).push({ boardId: Number(boardKey), groupId });
   }
 }
 
@@ -104,12 +113,21 @@ function resolveGroup(groupName, boardEnum) {
   }
 
   // Fall back to global lookup
-  const match = GROUP_NAME_TO_IDS[normalizedGroup];
-  if (!match) {
+  const matches = GROUP_NAME_TO_IDS[normalizedGroup];
+  if (!matches || matches.length === 0) {
     const allGroups = Object.keys(GROUP_NAME_TO_IDS).join(', ');
     throw new Error(`Unknown group: "${groupName}". Available groups: ${allGroups}`);
   }
-  return match;
+  if (matches.length > 1) {
+    const boards = matches
+      .map(m => `${BOARD_NAMES[String(m.boardId)] || m.boardId}`)
+      .join(', ');
+    throw new Error(
+      `Ambiguous group "${groupName}" — it exists on more than one board (${boards}). ` +
+      `Re-run with the "board" argument set so the answer is about the right board.`
+    );
+  }
+  return matches[0];
 }
 
 // ─── Tool Definitions ───────────────────────────────────────────────────────────
@@ -190,6 +208,37 @@ const TOOLS = [
         },
       },
       required: ['board', 'group'],
+    },
+  },
+  {
+    name: 'count_patients',
+    description:
+      'Count patients across pipeline stages — the ONLY correct way to answer "how many". It pages through every item, so the numbers are real totals, not page sizes. Use `where` to filter (e.g. every patient whose referralSource is "SNJ") and/or `group_by` to get a breakdown (e.g. how the pipeline splits across referral sources). Prefer this over list_patients_in_stage whenever the question is about a count, a share, or a comparison. If you do not know what value to filter on, call explain_field first to see the valid values for that field — never guess at what an abbreviation means.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        stages: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Which pipeline stages to count. Omit for the full active pipeline (Intake, Medical Necessity, Benefits, Submit Auth, Auth Outstanding, Welcome Call, Final Profile Confirmation). Completed/Stuck/Escalation groups are NOT active pipeline and are excluded unless named here.',
+        },
+        where_field: {
+          type: 'string',
+          enum: ['referralSource', 'referralType', 'primaryInsurance', 'serving', 'doctorName'],
+          description: 'Field to filter on. Pair with where_value.',
+        },
+        where_value: {
+          type: 'string',
+          description: 'Exact value to match, case-insensitive (e.g. "SNJ", "CareCentrix", "CGM").',
+        },
+        group_by: {
+          type: 'string',
+          enum: ['referralSource', 'referralType', 'primaryInsurance', 'serving'],
+          description: 'Return a per-value breakdown of the counted patients.',
+        },
+      },
+      required: [],
     },
   },
   {
@@ -355,12 +404,50 @@ async function executeTool(toolName, toolInput) {
 
       case 'list_patients_in_stage': {
         const { boardId, groupId } = resolveGroup(toolInput.group, toolInput.board);
-        const patients = await getBoardGroupPatients(boardId, groupId);
+        const { patients, total, returned, truncated, capped } =
+          await getBoardGroupPatients(boardId, groupId);
         return JSON.stringify({
           board: toolInput.board,
           group: toolInput.group,
-          count: patients.length,
+          // total is the REAL size of the stage; returned is how many rows are below.
+          total,
+          returned,
+          truncated,
+          ...(truncated ? {
+            note: `Showing ${returned} of ${total} patients. Report ${total} as the count for this stage — never ${returned}.`,
+          } : {}),
+          ...(capped ? { warning: 'Safety cap hit — total is a floor, not the exact count.' } : {}),
           patients,
+        });
+      }
+
+      case 'count_patients': {
+        const stages = Array.isArray(toolInput.stages) && toolInput.stages.length
+          ? toolInput.stages.map(name => {
+              const match = ACTIVE_PIPELINE.find(
+                s => s.stage.toLowerCase() === String(name).toLowerCase() ||
+                     s.groupAlias.toLowerCase() === String(name).toLowerCase().replace(/[\s_-]/g, '')
+              );
+              if (match) return match;
+              const { boardId, groupId } = resolveGroup(String(name));
+              const alias = Object.entries(BOARD_GROUPS[boardId] || {})
+                .find(([, gid]) => gid === groupId)?.[0];
+              return { stage: String(name), boardId, groupAlias: alias };
+            })
+          : ACTIVE_PIPELINE;
+
+        const where = toolInput.where_field && toolInput.where_value
+          ? { field: toolInput.where_field, value: toolInput.where_value }
+          : null;
+
+        const result = await countPatients(stages, { groupBy: toolInput.group_by || null, where });
+        return JSON.stringify({
+          scope: stages === ACTIVE_PIPELINE ? 'active pipeline' : stages.map(s => s.stage).join(', '),
+          ...(where ? { filter: `${where.field} = "${where.value}"` } : {}),
+          ...result,
+          note: where
+            ? `${result.filtered} of ${result.total} patients in scope match. These are complete counts — every page was walked.`
+            : 'These are complete counts — every page was walked.',
         });
       }
 
@@ -436,6 +523,10 @@ function describeToolUse(toolName, input) {
       return `Checking Command Center status...`;
     case 'list_patients_in_stage':
       return `Loading ${input.group} queue...`;
+    case 'count_patients':
+      return input.where_value
+        ? `Counting ${input.where_value} patients across the pipeline...`
+        : `Counting the pipeline...`;
     case 'explain_field':
       return `Looking up field "${input.field_name}"...`;
     case 'lookup_command_center_code':

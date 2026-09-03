@@ -45,29 +45,50 @@ export const BOARD_NAMES = {
   '18407459988': 'Subscription',
 };
 
-/** @type {Record<number, Record<string, string>>} Board ID → { groupAlias: groupId } */
+/**
+ * Board ID → { groupAlias: groupId }.
+ *
+ * NOTE: Monday group IDs are NOT globally unique — the same ID is reused across
+ * boards (e.g. `group_mm1xf2jb` is "1. Intake" on Profile AND "2. Medical
+ * Necessity" on Medical Evaluation; `group_mm1xyczx` is "Stuck" on three
+ * boards). Always resolve a group with its board, never by ID alone.
+ *
+ * @type {Record<number, Record<string, string>>}
+ */
 export const BOARD_GROUPS = {
   18406060017: {
     medicalNecessity: 'group_mm1xf2jb',
+    completed:        'group_mm1x5q4e',
+    stuck:            'group_mm1xyczx',
+    escalations:      'group_mm33pdpm',
   },
   18410601299: {
     benefits:        'group_mm1xr3q3',
     submitAuth:      'group_mm1x1416',
     authOutstanding: 'group_mm2v6d1z',
+    dvs:             'group_mm5gp2r2',
+    authDenied:      'group_mm316hg2',
+    escalations:     'group_mm2vg9gn',
     complete:        'group_mm2vw3c0',
+    stuck:           'group_mm5g7twt',
   },
   18410804557: {
     welcomeCall:              'group_mm1wvq8p',
     finalProfileConfirmation: 'group_mm2x8jtj',
     completed:                'group_mm1x5s5d',
     stuck:                    'group_mm1xyczx',
+    escalation:               'group_mm1x5c0',
   },
   18406352652: {
-    intake:            'group_mm1xf2jb',
-    parachuteExample:  'group_mm1x1416',
-    tests:             'group_mm1wvq8p',
-    stuck:             'group_mm1xyczx',
-    completed:         'group_mm1y57sz',
+    intake:              'group_mm1xf2jb',
+    alreadyInSystem:     'group_mm64b83h',
+    newFormPartialLeads: 'group_mm5z87zt',
+    newFormCompleted:    'group_mm5zgeak',
+    profileCleanUp:      'group_mm6c3rhb',
+    tests:               'group_mm1wvq8p',
+    archivedDtcs:        'group_mm4vhqff',
+    stuck:               'group_mm1xyczx',
+    completed:           'group_mm1y57sz',
   },
   18407459988: {
     subscriptions: 'topics',
@@ -75,17 +96,50 @@ export const BOARD_GROUPS = {
   },
 };
 
-/** Reverse lookup: groupId → { boardId, groupAlias } */
+/**
+ * The groups that make up the LIVE pipeline, in stage order. Anything not on
+ * this list (Completed, Stuck, Escalations, Archived, partial form leads) is
+ * NOT an active pipeline patient.
+ * @type {Array<{stage: string, boardId: number, groupAlias: string}>}
+ */
+export const ACTIVE_PIPELINE = [
+  { stage: 'Intake',                     boardId: 18406352652, groupAlias: 'intake' },
+  { stage: 'Medical Necessity',          boardId: 18406060017, groupAlias: 'medicalNecessity' },
+  { stage: 'Benefits',                   boardId: 18410601299, groupAlias: 'benefits' },
+  { stage: 'Submit Auth',                boardId: 18410601299, groupAlias: 'submitAuth' },
+  { stage: 'Auth Outstanding',           boardId: 18410601299, groupAlias: 'authOutstanding' },
+  { stage: 'Welcome Call',               boardId: 18410804557, groupAlias: 'welcomeCall' },
+  { stage: 'Final Profile Confirmation', boardId: 18410804557, groupAlias: 'finalProfileConfirmation' },
+];
+
+/**
+ * Reverse lookup keyed by `${boardId}:${groupId}` — group IDs collide across
+ * boards, so keying on the ID alone silently mislabels patients (every Medical
+ * Necessity patient used to come back with groupAlias "intake").
+ */
 const GROUP_REVERSE = {};
 for (const [boardId, groups] of Object.entries(BOARD_GROUPS)) {
   for (const [alias, gid] of Object.entries(groups)) {
-    GROUP_REVERSE[gid] = { boardId: Number(boardId), groupAlias: alias };
+    GROUP_REVERSE[`${boardId}:${gid}`] = { boardId: Number(boardId), groupAlias: alias };
   }
+}
+
+/** Resolve a group alias for an item, scoped to its board. */
+function groupAliasFor(boardId, groupId, fallbackTitle) {
+  return GROUP_REVERSE[`${boardId}:${groupId}`] || { boardId, groupAlias: fallbackTitle };
 }
 
 // ─── Column ID Maps ─────────────────────────────────────────────────────────────
 
-/** Columns shared across most boards */
+/**
+ * Columns shared across most boards.
+ *
+ * These are the DEFAULTS. Several boards use a different column ID for the same
+ * concept, or don't have the column at all — see BOARD_COLUMN_OVERRIDES. Monday
+ * silently drops unknown column IDs from a query rather than erroring, so a
+ * stale ID here shows up as a permanently blank field, never as a failure.
+ * Always go through resolveColumns(boardId).
+ */
 export const SHARED_COLUMNS = {
   dob:               'text_mm1xvxst',
   phone:             'phone_mm1x44yk',
@@ -98,15 +152,72 @@ export const SHARED_COLUMNS = {
   diagnosis:         'color_mm1wf7rv',
   daysSinceIntake:   'color_mm1xwabn',
   daysSinceStageStart: 'color_mm1wwm05',
+  referralSource:    'color_mm1w5wxr',
+  referralType:      'color_mm1wm4n4',
 };
 
-/** Medical Necessity board-specific columns */
+/**
+ * Per-board corrections to SHARED_COLUMNS. `null` means "this board does not
+ * have that column" and the field is dropped from the query entirely.
+ * Verified against the live boards.
+ * @type {Record<number, Record<string, string|null>>}
+ */
+export const BOARD_COLUMN_OVERRIDES = {
+  // Profile Send Off Board — its own Primary Insurance column, and no
+  // diagnosis / days-since columns at all.
+  18406352652: {
+    primaryInsurance:    'color_mm1xg10n',
+    diagnosis:           null,
+    daysSinceIntake:     null,
+    daysSinceStageStart: null,
+  },
+  // Medical Evaluation — tracks stage time only, no "days since intake".
+  18406060017: {
+    daysSinceIntake: null,
+  },
+  // Subscription board — a separate schema almost end to end.
+  18407459988: {
+    dob:                 'text_mkvdefh1',
+    phone:               'phone_mkp0q3cw',
+    address:             'location_mkp0rs0v',
+    primaryInsurance:    'color_mm254qxj',
+    memberId1:           'text_mkvp6zfg',
+    memberId2:           'text_mm25cpx6',
+    doctorName:          'text_mkxn3wza',
+    diagnosis:           'color_mkxrxv9w',
+    referralSource:      'color_mm6thrwv',
+    referralType:        null,
+    serving:             null,
+    daysSinceIntake:     null,
+    daysSinceStageStart: null,
+  },
+};
+
+/**
+ * Resolve the effective { fieldName: columnId } map for a board.
+ * @param {number} boardId
+ * @returns {Record<string, string>}
+ */
+export function resolveColumns(boardId) {
+  const overrides = BOARD_COLUMN_OVERRIDES[boardId] || {};
+  const out = {};
+  for (const [field, id] of Object.entries(SHARED_COLUMNS)) {
+    const override = Object.prototype.hasOwnProperty.call(overrides, field) ? overrides[field] : id;
+    if (override) out[field] = override;
+  }
+  return out;
+}
+
+/**
+ * Medical Necessity board-specific columns.
+ * `masterStage` / `advancer2a` / `advancer2b` used to point at column IDs that
+ * no longer exist on this board; Monday drops unknown IDs silently, so they
+ * read as permanently blank. Removed, and the MN evaluation fields Elena
+ * actually needs to explain a decision are mapped instead.
+ */
 export const MN_COLUMNS = {
+  stageAdvancer:      'color_mm1wyr92',
   subStage:           'color_mm1wyr92',
-  masterStage:        'color_mm1ws96t',
-  stageAdvancer:      'color_mm1ws96t',
-  advancer2a:         'color_mm1w73jx',
-  advancer2b:         'color_mm1wfbkz',
   advancer2c:         'color_mm1wf98t',
   advancer2d:         'color_mm1wcsbv',
   blocked:            'color_mm33ppgw',
@@ -116,6 +227,23 @@ export const MN_COLUMNS = {
   medicalNecessity:   'color_mm1y6qrf',
   mnAttempts:         'color_mm1wz0vg',
   mrsClinicals:       'color_mm1y8rv8',
+  // Coverage paths + evaluation detail — the "why" behind an MN determination
+  cgmCoveragePath:    'color_mm1w7e5q',
+  ipCoveragePath:     'color_mm1w5xn1',
+  cgmLanguage:        'color_mm4bb5sm',
+  lastVisit:          'date_mm1wb9br',
+  mrExpiryDate:       'date_mm1ymthz',
+  evaluationCounter:  'numeric_mm4bhjc8',
+  cgmScriptReceived:  'color_mm44h0fx',
+  ipScriptReceived:   'color_mm44chc8',
+  oowDate:            'date_mm4kyfte',
+  generalMnInvalidReasons: 'dropdown_mm2xppn8',
+  cgmMnInvalidReasons:     'dropdown_mm2xncfh',
+  ipMnInvalidReasons:      'dropdown_mm2xgg2y',
+  ipMnNoReasons:           'dropdown_mm4bwxpv',
+  mnRequestConsolidated:   'dropdown_mm2yd3a2',
+  sendRequest:        'color_mm2y7t2x',
+  requestSent:        'date_mm2yg8x8',
 };
 
 /** Insurance board-specific columns */
@@ -164,25 +292,6 @@ export const SUB_COLUMNS = {
   subscription:       'color_mm273mv8',
   orderType:          'color_mm2w6kd',
 };
-
-/**
- * Get all relevant column IDs for a given board, combining shared + board-specific.
- * @param {number} boardId
- * @returns {string[]}
- */
-function getColumnIdsForBoard(boardId) {
-  const shared = Object.values(SHARED_COLUMNS);
-  let specific = [];
-  switch (boardId) {
-    case 18406060017: specific = Object.values(MN_COLUMNS); break;
-    case 18410601299: specific = Object.values(INS_COLUMNS); break;
-    case 18410804557: specific = Object.values(WC_COLUMNS); break;
-    case 18406352652: specific = []; break; // Profile uses shared columns
-    case 18407459988: specific = Object.values(SUB_COLUMNS); break;
-  }
-  // Deduplicate (some IDs may overlap between shared and specific)
-  return [...new Set([...shared, ...specific])];
-}
 
 // ─── GraphQL Helper ─────────────────────────────────────────────────────────────
 
@@ -243,26 +352,27 @@ function parseColumnValues(columnValues) {
 }
 
 /**
- * Build a reverse lookup from column ID to human-readable field name for a board.
+ * Read the fields in `fieldNames` off a parsed column map, using the board's
+ * resolved column IDs. Fields the board doesn't have come back as ''.
+ * @param {Record<string, {text: string, value: any}>} cols
  * @param {number} boardId
+ * @param {string[]} fieldNames
  * @returns {Record<string, string>}
  */
-function columnIdToFieldName(boardId) {
-  const reverse = {};
-  for (const [name, id] of Object.entries(SHARED_COLUMNS)) {
-    reverse[id] = name;
+function readFields(cols, boardId, fieldNames) {
+  const ids = resolveColumns(boardId);
+  const out = {};
+  for (const field of fieldNames) {
+    out[field] = ids[field] ? (cols[ids[field]]?.text || '') : '';
   }
-  let specific = {};
-  switch (boardId) {
-    case 18406060017: specific = MN_COLUMNS; break;
-    case 18410601299: specific = INS_COLUMNS; break;
-    case 18410804557: specific = WC_COLUMNS; break;
-    case 18407459988: specific = SUB_COLUMNS; break;
-  }
-  for (const [name, id] of Object.entries(specific)) {
-    reverse[id] = name;
-  }
-  return reverse;
+  return out;
+}
+
+/** Build the `column_values(ids: [...])` fragment for a board + field list. */
+function columnIdsFragment(boardId, fieldNames) {
+  const ids = resolveColumns(boardId);
+  const wanted = fieldNames.map(f => ids[f]).filter(Boolean);
+  return `column_values(ids: [${wanted.map(id => `"${id}"`).join(', ')}]) { id text value }`;
 }
 
 // ─── Exported Functions ─────────────────────────────────────────────────────────
@@ -281,6 +391,7 @@ export async function searchPatient(name) {
 
   const boardIds = Object.values(BOARD_IDS);
   const results = [];
+  const SUMMARY_FIELDS = ['serving', 'primaryInsurance', 'daysSinceIntake', 'dob', 'referralSource'];
 
   // Search each board in parallel
   const queries = boardIds.map(boardId => {
@@ -295,11 +406,7 @@ export async function searchPatient(name) {
               id
               name
               group { id title }
-              column_values(ids: ["${SHARED_COLUMNS.serving}", "${SHARED_COLUMNS.primaryInsurance}", "${SHARED_COLUMNS.daysSinceIntake}", "${SHARED_COLUMNS.dob}"]) {
-                id
-                text
-                value
-              }
+              ${columnIdsFragment(boardId, SUMMARY_FIELDS)}
             }
           }
         }
@@ -320,7 +427,7 @@ export async function searchPatient(name) {
 
     for (const item of items) {
       const cols = parseColumnValues(item.column_values);
-      const groupInfo = GROUP_REVERSE[item.group.id] || { groupAlias: item.group.title };
+      const groupInfo = groupAliasFor(boardId, item.group.id, item.group.title);
 
       results.push({
         itemId: item.id,
@@ -330,10 +437,7 @@ export async function searchPatient(name) {
         groupId: item.group.id,
         groupAlias: groupInfo.groupAlias,
         groupTitle: item.group.title,
-        serving: cols[SHARED_COLUMNS.serving]?.text || '',
-        primaryInsurance: cols[SHARED_COLUMNS.primaryInsurance]?.text || '',
-        daysSinceIntake: cols[SHARED_COLUMNS.daysSinceIntake]?.text || '',
-        dob: cols[SHARED_COLUMNS.dob]?.text || '',
+        ...readFields(cols, boardId, SUMMARY_FIELDS),
       });
     }
   }
@@ -379,7 +483,7 @@ export async function getPatient(itemId, boardId) {
   }
 
   const item = items[0];
-  const groupInfo = GROUP_REVERSE[item.group.id] || { groupAlias: item.group.title };
+  const groupInfo = groupAliasFor(boardId, item.group.id, item.group.title);
 
   // Build a human-readable column map using Monday's own column titles.
   // Skip separator/header columns (titles ending in --> or →) and empty values.
@@ -404,57 +508,160 @@ export async function getPatient(itemId, boardId) {
   };
 }
 
+/** Fields returned for each patient in a stage listing. */
+const STAGE_FIELDS = [
+  'serving', 'primaryInsurance', 'daysSinceIntake', 'daysSinceStageStart',
+  'dob', 'doctorName', 'referralSource', 'referralType',
+];
+
+/** Monday's hard per-page cap on items_page. */
+const PAGE_SIZE = 500;
+
 /**
- * Get all patients in a specific board group/stage.
+ * Page through every item in a board group, applying `onItem` to each.
+ * Returns the true total, and whether the safety cap cut the walk short.
+ *
+ * Monday returns at most PAGE_SIZE items per request and hands back a cursor;
+ * a single un-paged request silently truncates, which is how a 190-patient
+ * stage used to get reported as "50".
+ *
+ * @param {number} boardId
+ * @param {string} groupId
+ * @param {(item: any) => void} onItem
+ * @param {number} [maxItems=5000] - safety cap
+ * @returns {Promise<{total: number, capped: boolean}>}
+ */
+async function walkGroup(boardId, groupId, onItem, maxItems = 5000) {
+  const body = `cursor items { id name group { id title } ${columnIdsFragment(boardId, STAGE_FIELDS)} }`;
+  let cursor = null;
+  let total = 0;
+
+  for (;;) {
+    const query = cursor
+      ? `{ next_items_page(limit: ${PAGE_SIZE}, cursor: "${cursor}") { ${body} } }`
+      : `{ boards(ids: ${boardId}) {
+             items_page(limit: ${PAGE_SIZE}, query_params: {
+               rules: [{ column_id: "group", compare_value: ["${groupId}"] }]
+             }) { ${body} }
+           } }`;
+
+    const data = await mondayQuery(query);
+    const pageData = cursor ? data.next_items_page : data.boards?.[0]?.items_page;
+    const items = pageData?.items || [];
+
+    for (const item of items) {
+      onItem(item);
+      total++;
+    }
+
+    cursor = pageData?.cursor || null;
+    if (!cursor || items.length === 0) return { total, capped: false };
+    if (total >= maxItems) return { total, capped: true };
+  }
+}
+
+/**
+ * Get every patient in a board group/stage.
+ *
+ * Returns the FULL group (paged), plus the true count. `patients` may be capped
+ * at `limit` rows to keep the payload sane, but `total` is always the real
+ * number and `truncated` says whether rows were withheld — so a caller can
+ * never mistake a page size for a stage size.
  *
  * @param {number} boardId - Board ID
  * @param {string} groupId - Monday group ID (e.g., "group_mm1xr3q3")
- * @param {number} [limit=50] - Max items to return
- * @returns {Promise<Array<{itemId: string, name: string, groupTitle: string, serving: string, primaryInsurance: string, daysSinceIntake: string, daysSinceStageStart: string}>>}
+ * @param {number} [limit=50] - Max patient rows to return (counting is unaffected)
+ * @returns {Promise<{patients: Array<object>, total: number, returned: number, truncated: boolean, capped: boolean}>}
  */
 export async function getBoardGroupPatients(boardId, groupId, limit = 50) {
   if (!boardId || !groupId) {
     throw new Error('getBoardGroupPatients requires both boardId and groupId');
   }
 
-  const query = `
-    {
-      boards(ids: ${boardId}) {
-        items_page(limit: ${limit}, query_params: {
-          rules: [{ column_id: "group", compare_value: ["${groupId}"] }]
-        }) {
-          items {
-            id
-            name
-            group { id title }
-            column_values(ids: ["${SHARED_COLUMNS.serving}", "${SHARED_COLUMNS.primaryInsurance}", "${SHARED_COLUMNS.daysSinceIntake}", "${SHARED_COLUMNS.daysSinceStageStart}", "${SHARED_COLUMNS.dob}", "${SHARED_COLUMNS.doctorName}"]) {
-              id
-              text
-              value
-            }
-          }
-        }
-      }
-    }
-  `;
-
-  const data = await mondayQuery(query);
-  const items = data.boards?.[0]?.items_page?.items || [];
-
-  return items.map(item => {
+  const patients = [];
+  const { total, capped } = await walkGroup(boardId, groupId, item => {
+    if (patients.length >= limit) return;
     const cols = parseColumnValues(item.column_values);
-    return {
+    patients.push({
       itemId: item.id,
       name: item.name,
       groupTitle: item.group.title,
-      serving: cols[SHARED_COLUMNS.serving]?.text || '',
-      primaryInsurance: cols[SHARED_COLUMNS.primaryInsurance]?.text || '',
-      daysSinceIntake: cols[SHARED_COLUMNS.daysSinceIntake]?.text || '',
-      daysSinceStageStart: cols[SHARED_COLUMNS.daysSinceStageStart]?.text || '',
-      dob: cols[SHARED_COLUMNS.dob]?.text || '',
-      doctorName: cols[SHARED_COLUMNS.doctorName]?.text || '',
-    };
+      ...readFields(cols, boardId, STAGE_FIELDS),
+    });
   });
+
+  return {
+    patients,
+    total,
+    returned: patients.length,
+    truncated: patients.length < total,
+    capped,
+  };
+}
+
+/**
+ * Count patients across board groups, optionally broken down by a field.
+ *
+ * This is the tool for "how many X are in the pipeline" — it walks every page,
+ * so the number is the real number, not a page size.
+ *
+ * @param {Array<{stage: string, boardId: number, groupAlias: string}>} [stages]
+ *        Defaults to the active pipeline.
+ * @param {object} [opts]
+ * @param {string} [opts.groupBy] - Field to break down by (e.g. "referralSource").
+ * @param {{field: string, value: string}} [opts.where] - Case-insensitive equality filter.
+ * @returns {Promise<{stages: Array<object>, total: number, filtered: number|null, breakdown: Record<string, number>|null, incomplete: boolean}>}
+ */
+export async function countPatients(stages = ACTIVE_PIPELINE, opts = {}) {
+  const { groupBy = null, where = null } = opts;
+  const results = [];
+  const breakdown = groupBy ? {} : null;
+  let total = 0;
+  let filtered = where ? 0 : null;
+  let incomplete = false;
+
+  for (const stage of stages) {
+    const groupId = BOARD_GROUPS[stage.boardId]?.[stage.groupAlias];
+    if (!groupId) {
+      results.push({ ...stage, error: `Unknown group "${stage.groupAlias}" on board ${stage.boardId}` });
+      incomplete = true;
+      continue;
+    }
+
+    let stageMatches = 0;
+    const stageBreakdown = groupBy ? {} : null;
+
+    const { total: stageTotal, capped } = await walkGroup(stage.boardId, groupId, item => {
+      const cols = parseColumnValues(item.column_values);
+      const fields = readFields(cols, stage.boardId, STAGE_FIELDS);
+
+      if (where) {
+        const actual = (fields[where.field] || '').trim().toLowerCase();
+        if (actual !== String(where.value).trim().toLowerCase()) return;
+        stageMatches++;
+      }
+      if (groupBy) {
+        const key = (fields[groupBy] || '').trim() || '(blank)';
+        stageBreakdown[key] = (stageBreakdown[key] || 0) + 1;
+        breakdown[key] = (breakdown[key] || 0) + 1;
+      }
+    });
+
+    if (capped) incomplete = true;
+    total += stageTotal;
+    if (where) filtered += stageMatches;
+
+    results.push({
+      stage: stage.stage,
+      board: BOARD_NAMES[String(stage.boardId)] || `Board ${stage.boardId}`,
+      total: stageTotal,
+      ...(where ? { matching: stageMatches } : {}),
+      ...(groupBy ? { breakdown: stageBreakdown } : {}),
+      ...(capped ? { warning: 'Hit the safety cap — this stage count is a floor, not the total.' } : {}),
+    });
+  }
+
+  return { stages: results, total, filtered, breakdown, incomplete };
 }
 
 /**
@@ -862,6 +1069,21 @@ const FIELD_EXPLANATIONS = {
   primaryinsurance: {
     description: 'The patient\'s primary insurance carrier. Used for benefits verification and auth requirements.',
     uiEffect: 'Displayed as context info. Influences which auth steps are required.',
+    board: 'All boards',
+  },
+  referralsource: {
+    description: 'WHO sent us this patient — the specific partner, manufacturer, clinic or channel. This is the field to filter or count on when someone asks about a named referral partner (e.g. "how many SNJ patients"). SNJ is a referral source, not an insurance, a state, or a territory.',
+    possibleValues: [
+      'Patient', 'Tandem', 'Beta Bionics', 'CareCentrix', 'Doctor',
+      'Wellstart', 'Solace Advocates', 'SNJ', 'District Endochrine',
+    ],
+    uiEffect: 'Set at intake in the REFERRAL DETAILS section. Present on Profile, Medical Evaluation, Insurance and Welcome Call; the Subscription board keeps its own Referral Source column.',
+    board: 'All boards',
+  },
+  referraltype: {
+    description: 'WHAT KIND of referral this is — the category of the source, not the source itself. Pair it with Referral Source: Referral Type says "Manufacturer", Referral Source says which one.',
+    possibleValues: ['Manufacturer', 'Payor', 'Patient', 'Doctor', 'Advocacy Group'],
+    uiEffect: 'Set at intake alongside Referral Source in the REFERRAL DETAILS section.',
     board: 'All boards',
   },
   dob: {

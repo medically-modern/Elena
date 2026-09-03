@@ -13,7 +13,7 @@ import { MN_RUBRIC, MN_TOOL } from '../config/mn-rubric.js';
 
 const anthropic = new Anthropic();
 // Strong model — clinical judgment, not a cheap call.
-const MN_MODEL = process.env.MN_MODEL || process.env.SONNET_MODEL || 'claude-sonnet-4-6';
+const MN_MODEL = process.env.MN_MODEL || process.env.SONNET_MODEL || 'claude-sonnet-5';
 
 const DOC_REVIEW_SYSTEM = `You are Elena, Medically Modern's assistant. The user has attached one or more documents (PDFs — often clinical charts, orders, letters, or faxes). Read them carefully and do exactly what the user asks.
 
@@ -40,10 +40,16 @@ export async function reviewDocuments(pdfs, message) {
   }));
   content.push({ type: 'text', text: instruction });
 
+  // Adaptive thinking: matching a chart against coverage criteria line by line is
+  // exactly the work that benefits from reasoning before answering, and a wrong MN
+  // call costs a full clinical-chase cycle. Thinking blocks are ignored below —
+  // the tool_use / text filters already skip them.
   const response = await anthropic.messages.create({
     model: MN_MODEL,
-    max_tokens: 8192,
+    max_tokens: 16000,
     system: DOC_REVIEW_SYSTEM,
+    thinking: { type: 'adaptive' },
+    output_config: { effort: 'high' },
     tools: [MN_TOOL],
     tool_choice: { type: 'auto' },
     messages: [{ role: 'user', content }],
